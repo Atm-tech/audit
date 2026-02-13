@@ -62,6 +62,7 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.7.7/dist/quagga.min.js"></script>
 <script>
   (() => {
     const barcodeInput = document.getElementById("barcodeInput");
@@ -69,10 +70,12 @@
     const stopBtn = document.getElementById("stopCameraBtn");
     const statusEl = document.getElementById("scannerStatus");
     const scannerId = "scannerBox";
-    let scanner = null;
+    let scanner = null; // html5-qrcode instance
+    let quaggaActive = false;
     let isRunning = false;
     let lastScanned = "";
     let lastScannedAt = 0;
+    let startEpoch = 0;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
@@ -95,6 +98,19 @@
         }, 80);
       } catch (err) {}
       if (navigator.vibrate) navigator.vibrate(80);
+    }
+
+    function handleDetectedText(decodedText) {
+      const text = (decodedText || "").trim();
+      const now = Date.now();
+      if (!text) return;
+      if (text === lastScanned && now - lastScannedAt < 2000) return;
+      lastScanned = text;
+      lastScannedAt = now;
+      barcodeInput.value = text;
+      beep();
+      setStatus("Barcode captured. Tap Save Scan.");
+      barcodeInput.focus();
     }
 
     async function getRearCameraId() {
@@ -124,19 +140,9 @@
       const selectedId = await getRearCameraId();
       if (!selectedId) return;
       scanner = new Html5Qrcode(scannerId);
+      startEpoch = Date.now();
 
-      const onDetected = (decodedText) => {
-        const text = (decodedText || "").trim();
-        const now = Date.now();
-        if (!text) return;
-        if (text === lastScanned && now - lastScannedAt < 2000) return;
-        lastScanned = text;
-        lastScannedAt = now;
-        barcodeInput.value = text;
-        beep();
-        setStatus("Barcode captured. Tap Save Scan.");
-        barcodeInput.focus();
-      };
+      const onDetected = (decodedText) => handleDetectedText(decodedText);
 
       try {
         // Match incentive-app style: fixed fps and narrow scan strip.
@@ -175,13 +181,94 @@
       startBtn.disabled = true;
       stopBtn.disabled = false;
       setStatus("Camera scanner is running.");
+
+      // If nothing is detected for some time, auto-fallback to Quagga (1D barcode optimized).
+      setTimeout(async () => {
+        if (!isRunning) return;
+        if (lastScannedAt >= startEpoch) return;
+        setStatus("No detection yet. Switching to enhanced barcode mode...");
+        await switchToQuagga();
+      }, 7000);
+    }
+
+    async function switchToQuagga() {
+      if (!window.Quagga) {
+        setStatus("Enhanced scanner unavailable.");
+        return;
+      }
+      if (!isRunning) return;
+
+      try {
+        if (scanner) {
+          await scanner.stop();
+          await scanner.clear();
+          scanner = null;
+        }
+      } catch (err) {}
+
+      const target = document.getElementById(scannerId);
+      if (!target) return;
+      target.innerHTML = "";
+
+      Quagga.offDetected(onQuaggaDetected);
+      Quagga.onDetected(onQuaggaDetected);
+
+      Quagga.init(
+        {
+          inputStream: {
+            type: "LiveStream",
+            target: target,
+            constraints: {
+              facingMode: "environment"
+            }
+          },
+          locator: { patchSize: "medium", halfSample: true },
+          decoder: {
+            readers: [
+              "ean_reader",
+              "ean_8_reader",
+              "upc_reader",
+              "upc_e_reader",
+              "code_128_reader",
+              "code_39_reader",
+              "codabar_reader",
+              "i2of5_reader"
+            ]
+          },
+          locate: true
+        },
+        (err) => {
+          if (err) {
+            setStatus("Enhanced scanner failed to start.");
+            return;
+          }
+          quaggaActive = true;
+          Quagga.start();
+          setStatus("Enhanced barcode mode is running.");
+        }
+      );
+    }
+
+    function onQuaggaDetected(result) {
+      const code = result && result.codeResult ? result.codeResult.code : "";
+      handleDetectedText(code);
     }
 
     async function stopScanner() {
-      if (!scanner || !isRunning) return;
+      if (!isRunning) return;
       try {
-        await scanner.stop();
-        await scanner.clear();
+        if (scanner) {
+          await scanner.stop();
+          await scanner.clear();
+          scanner = null;
+        }
+      } catch (err) {}
+      try {
+        if (window.Quagga && quaggaActive) {
+          Quagga.offDetected(onQuaggaDetected);
+          Quagga.stop();
+          quaggaActive = false;
+        }
       } catch (err) {}
       isRunning = false;
       startBtn.disabled = false;
