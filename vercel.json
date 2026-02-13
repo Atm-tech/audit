@@ -1,15 +1,9 @@
 {
   "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "app.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "app.py"
+      "source": "/(.*)",
+      "destination": "https://123c-122-168-112-31.ngrok-free.app/$1"
     }
   ]
 }
