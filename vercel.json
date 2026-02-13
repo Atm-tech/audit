@@ -1,9 +1,9 @@
 {
   "version": 2,
-  "rewrites": [
+  "routes": [
     {
-      "source": "/(.*)",
-      "destination": "https://123c-122-168-112-31.ngrok-free.app/$1"
+      "src": "/(.*)",
+      "dest": "/api/proxy?path=$1"
     }
   ]
 }
