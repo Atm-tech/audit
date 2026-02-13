@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Audit History (Archived)</h4>
+  <a class="btn btn-outline-secondary" href="{{ url_for('admin_audits') }}">Back to Audits</a>
+</div>
+
+<div class="card p-3">
+  <table class="table table-sm mb-0">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Source Audit ID</th>
+        <th>Name</th>
+        <th>Tag Outlet</th>
+        <th>Start</th>
+        <th>End</th>
+        <th>Items</th>
+        <th>|Variance|</th>
+        <th>Archived At</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r['id'] }}</td>
+        <td>{{ r['source_audit_id'] }}</td>
+        <td>{{ r['name'] }}</td>
+        <td>{{ r['tag_outlet'] }}</td>
+        <td>{{ r['start_date'] }}</td>
+        <td>{{ r['end_date'] }}</td>
+        <td>{{ r['items_count'] }}</td>
+        <td>{{ r['variance_abs'] or 0 }}</td>
+        <td>{{ r['archived_at'] }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_history_purge', history_audit_id=r['id']) }}" onsubmit="return confirm('Purge this historical record? This cannot be undone.');">
+            <button class="btn btn-sm btn-outline-danger">Purge</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -30,6 +30,7 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.getenv("APP_DATA_DIR", BASE_DIR)
 os.makedirs(DATA_DIR, exist_ok=True)
 DATABASE = os.path.join(DATA_DIR, "audit.db")
+HISTORY_DATABASE = os.path.join(DATA_DIR, "history.db")
 SEED_SQL_PATH = os.path.join(BASE_DIR, "seed_data.sql")
 DEFAULT_ADMIN_NAME = "admin"
 DEFAULT_ADMIN_PHONE = "9111080628"
@@ -57,6 +58,189 @@ def close_db(_error):
     db = g.pop("db", None)
     if db is not None:
         db.close()
+
+
+def get_history_conn():
+    conn = sqlite3.connect(HISTORY_DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_history_db():
+    conn = get_history_conn()
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS history_audits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_audit_id INTEGER UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            tag_outlet TEXT NOT NULL,
+            start_date TEXT,
+            end_date TEXT,
+            ended_at TEXT,
+            archived_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS history_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            history_audit_id INTEGER NOT NULL,
+            outlet TEXT NOT NULL,
+            department TEXT NOT NULL,
+            barcode TEXT NOT NULL,
+            article_name TEXT NOT NULL,
+            expected_qty INTEGER NOT NULL,
+            scanned_qty INTEGER NOT NULL,
+            variance INTEGER NOT NULL,
+            FOREIGN KEY(history_audit_id) REFERENCES history_audits(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS history_sub_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            history_audit_id INTEGER NOT NULL,
+            sub_auditor_id INTEGER NOT NULL,
+            sub_name TEXT NOT NULL,
+            outlet TEXT NOT NULL,
+            department TEXT NOT NULL,
+            scans_count INTEGER NOT NULL,
+            scanned_qty_total INTEGER NOT NULL,
+            unique_barcodes INTEGER NOT NULL,
+            first_scan_at TEXT,
+            last_scan_at TEXT,
+            frozen_at TEXT,
+            FOREIGN KEY(history_audit_id) REFERENCES history_audits(id)
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def archive_audit_to_history(audit_id):
+    db = get_db()
+    init_history_db()
+    hconn = get_history_conn()
+
+    existing = hconn.execute(
+        "SELECT id FROM history_audits WHERE source_audit_id = ?",
+        (audit_id,),
+    ).fetchone()
+    if existing:
+        hconn.close()
+        return
+
+    audit = db.execute("SELECT * FROM audits WHERE id = ?", (audit_id,)).fetchone()
+    if not audit:
+        hconn.close()
+        return
+
+    cur = hconn.execute(
+        """
+        INSERT INTO history_audits (
+            source_audit_id, name, tag_outlet, start_date, end_date, ended_at, archived_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            audit["id"],
+            audit["name"],
+            audit["tag_outlet"],
+            audit["start_date"],
+            audit["end_date"],
+            now_ts(),
+            now_ts(),
+        ),
+    )
+    history_audit_id = cur.lastrowid
+
+    item_rows = db.execute(
+        """
+        SELECT
+            ai.outlet,
+            ai.department,
+            ai.barcode,
+            ai.article_name,
+            ai.expected_qty,
+            COALESCE(SUM(s.scanned_qty), 0) AS scanned_qty,
+            (COALESCE(SUM(s.scanned_qty), 0) - ai.expected_qty) AS variance
+        FROM audit_items ai
+        LEFT JOIN scans s
+          ON s.audit_id = ai.audit_id
+         AND s.barcode = ai.barcode
+         AND s.outlet = ai.outlet
+         AND s.department = ai.department
+        WHERE ai.audit_id = ?
+        GROUP BY ai.outlet, ai.department, ai.barcode, ai.article_name, ai.expected_qty
+        """,
+        (audit_id,),
+    ).fetchall()
+    for r in item_rows:
+        hconn.execute(
+            """
+            INSERT INTO history_items (
+                history_audit_id, outlet, department, barcode, article_name, expected_qty, scanned_qty, variance
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                history_audit_id,
+                r["outlet"],
+                r["department"],
+                r["barcode"],
+                r["article_name"],
+                r["expected_qty"],
+                r["scanned_qty"],
+                r["variance"],
+            ),
+        )
+
+    metric_rows = db.execute(
+        """
+        SELECT
+            a.sub_auditor_id,
+            u.name AS sub_name,
+            a.outlet,
+            a.department,
+            COUNT(s.id) AS scans_count,
+            COALESCE(SUM(s.scanned_qty), 0) AS scanned_qty_total,
+            COUNT(DISTINCT s.barcode) AS unique_barcodes,
+            MIN(s.scanned_at) AS first_scan_at,
+            MAX(s.scanned_at) AS last_scan_at,
+            a.frozen_at
+        FROM assignments a
+        JOIN users u ON u.id = a.sub_auditor_id
+        LEFT JOIN scans s
+          ON s.audit_id = a.audit_id
+         AND s.outlet = a.outlet
+         AND s.department = a.department
+         AND s.scanned_by = a.sub_auditor_id
+        WHERE a.audit_id = ?
+        GROUP BY a.sub_auditor_id, u.name, a.outlet, a.department, a.frozen_at
+        """,
+        (audit_id,),
+    ).fetchall()
+    for r in metric_rows:
+        hconn.execute(
+            """
+            INSERT INTO history_sub_metrics (
+                history_audit_id, sub_auditor_id, sub_name, outlet, department,
+                scans_count, scanned_qty_total, unique_barcodes, first_scan_at, last_scan_at, frozen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                history_audit_id,
+                r["sub_auditor_id"],
+                r["sub_name"],
+                r["outlet"],
+                r["department"],
+                r["scans_count"],
+                r["scanned_qty_total"],
+                r["unique_barcodes"],
+                r["first_scan_at"],
+                r["last_scan_at"],
+                r["frozen_at"],
+            ),
+        )
+
+    hconn.commit()
+    hconn.close()
 
 
 def init_db():
@@ -329,6 +513,7 @@ def migrate_scans_table(db):
 def ensure_db_initialized():
     if not app.config["DB_INITIALIZED"]:
         init_db()
+        init_history_db()
         app.config["DB_INITIALIZED"] = True
 
 
@@ -912,6 +1097,200 @@ def admin_audits():
     return render_template("admin_audits.html", audits=audits)
 
 
+@app.route("/admin/analytics")
+@login_required
+@role_required("admin")
+def admin_analytics():
+    db = get_db()
+    init_history_db()
+    hconn = get_history_conn()
+
+    totals = {
+        "audits_total": db.execute("SELECT COUNT(*) c FROM audits").fetchone()["c"],
+        "audits_ended": db.execute("SELECT COUNT(*) c FROM audits WHERE status='ended'").fetchone()["c"],
+        "archived_audits": hconn.execute("SELECT COUNT(*) c FROM history_audits").fetchone()["c"],
+        "sub_auditors": db.execute("SELECT COUNT(*) c FROM users WHERE role='sub_auditor'").fetchone()["c"],
+    }
+    totals_row = hconn.execute(
+        """
+        SELECT
+            COALESCE(SUM(expected_qty), 0) AS expected_total,
+            COALESCE(SUM(scanned_qty), 0) AS scanned_total,
+            COALESCE(SUM(ABS(variance)), 0) AS variance_abs_total,
+            COALESCE(SUM(CASE WHEN variance = 0 THEN 1 ELSE 0 END), 0) AS perfect_items,
+            COUNT(*) AS items_total
+        FROM history_items
+        """
+    ).fetchone()
+    totals["expected_total"] = int(totals_row["expected_total"] or 0)
+    totals["scanned_total"] = int(totals_row["scanned_total"] or 0)
+    totals["variance_abs_total"] = int(totals_row["variance_abs_total"] or 0)
+    totals["perfect_items"] = int(totals_row["perfect_items"] or 0)
+    totals["items_total"] = int(totals_row["items_total"] or 0)
+    totals["completion_pct"] = round(
+        (totals["scanned_total"] / totals["expected_total"]) * 100, 2
+    ) if totals["expected_total"] else 0
+    totals["perfect_match_pct"] = round(
+        (totals["perfect_items"] / totals["items_total"]) * 100, 2
+    ) if totals["items_total"] else 0
+
+    outlet_perf_rows = hconn.execute(
+        """
+        SELECT outlet,
+               COUNT(*) AS items_count,
+               SUM(expected_qty) AS expected_total,
+               SUM(scanned_qty) AS scanned_total,
+               SUM(ABS(variance)) AS variance_abs,
+               SUM(CASE WHEN variance = 0 THEN 1 ELSE 0 END) AS perfect_items
+        FROM history_items
+        GROUP BY outlet
+        ORDER BY variance_abs DESC
+        LIMIT 50
+        """
+    ).fetchall()
+    outlet_perf = []
+    for r in outlet_perf_rows:
+        expected = int(r["expected_total"] or 0)
+        scanned = int(r["scanned_total"] or 0)
+        items_count = int(r["items_count"] or 0)
+        perfect_items = int(r["perfect_items"] or 0)
+        outlet_perf.append(
+            {
+                "outlet": r["outlet"],
+                "items_count": items_count,
+                "expected_total": expected,
+                "scanned_total": scanned,
+                "variance_abs": int(r["variance_abs"] or 0),
+                "completion_pct": round((scanned / expected) * 100, 2) if expected else 0,
+                "perfect_pct": round((perfect_items / items_count) * 100, 2) if items_count else 0,
+            }
+        )
+
+    department_perf = hconn.execute(
+        """
+        SELECT
+            outlet,
+            department,
+            COUNT(*) AS items_count,
+            SUM(expected_qty) AS expected_total,
+            SUM(scanned_qty) AS scanned_total,
+            SUM(ABS(variance)) AS variance_abs
+        FROM history_items
+        GROUP BY outlet, department
+        ORDER BY variance_abs DESC, expected_total DESC
+        LIMIT 100
+        """
+    ).fetchall()
+
+    trend_rows = hconn.execute(
+        """
+        SELECT
+            substr(archived_at, 1, 7) AS month_key,
+            COUNT(*) AS audits_count
+        FROM history_audits
+        GROUP BY month_key
+        ORDER BY month_key DESC
+        LIMIT 12
+        """
+    ).fetchall()
+
+    sub_eff_rows = hconn.execute(
+        """
+        SELECT
+            sub_auditor_id,
+            sub_name,
+            outlet,
+            COUNT(*) AS assignments_total,
+            SUM(CASE WHEN frozen_at IS NOT NULL THEN 1 ELSE 0 END) AS assignments_frozen,
+            SUM(scans_count) AS scans_count,
+            SUM(scanned_qty_total) AS scanned_qty_total,
+            SUM(unique_barcodes) AS unique_barcodes,
+            MIN(first_scan_at) AS first_scan_at,
+            MAX(last_scan_at) AS last_scan_at,
+            (julianday(MAX(last_scan_at)) - julianday(MIN(first_scan_at))) * 24.0 * 60.0 AS active_minutes
+        FROM history_sub_metrics
+        GROUP BY sub_auditor_id, sub_name, outlet
+        ORDER BY scanned_qty_total DESC
+        LIMIT 250
+        """
+    ).fetchall()
+    max_scanned_qty = max([int(r["scanned_qty_total"] or 0) for r in sub_eff_rows], default=0)
+    max_assignments = max([int(r["assignments_total"] or 0) for r in sub_eff_rows], default=0)
+    sub_eff = []
+    for r in sub_eff_rows:
+        assignments_total = int(r["assignments_total"] or 0)
+        assignments_frozen = int(r["assignments_frozen"] or 0)
+        scans_count = int(r["scans_count"] or 0)
+        scanned_qty_total = int(r["scanned_qty_total"] or 0)
+        unique_barcodes = int(r["unique_barcodes"] or 0)
+        completion_rate = (assignments_frozen / assignments_total) if assignments_total else 0
+        throughput_norm = (scanned_qty_total / max_scanned_qty) if max_scanned_qty else 0
+        coverage_norm = (assignments_total / max_assignments) if max_assignments else 0
+        diversity = min(1.0, (unique_barcodes / scans_count)) if scans_count else 0
+        efficiency_score = round(
+            (throughput_norm * 35) + (coverage_norm * 20) + (completion_rate * 25) + (diversity * 20), 2
+        )
+        sub_eff.append(
+            {
+                "sub_name": r["sub_name"],
+                "outlet": r["outlet"],
+                "assignments_total": assignments_total,
+                "assignments_frozen": assignments_frozen,
+                "completion_pct": round(completion_rate * 100, 2),
+                "scans_count": scans_count,
+                "scanned_qty_total": scanned_qty_total,
+                "unique_barcodes": unique_barcodes,
+                "active_minutes": round(float(r["active_minutes"] or 0), 2) if r["active_minutes"] else 0,
+                "efficiency_score": efficiency_score,
+            }
+        )
+    sub_eff.sort(key=lambda x: (x["efficiency_score"], x["scanned_qty_total"]), reverse=True)
+    hconn.close()
+    return render_template(
+        "admin_analytics.html",
+        totals=totals,
+        outlet_perf=outlet_perf,
+        department_perf=department_perf,
+        trend_rows=trend_rows,
+        sub_eff=sub_eff,
+    )
+
+
+@app.route("/admin/history")
+@login_required
+@role_required("admin")
+def admin_history():
+    init_history_db()
+    hconn = get_history_conn()
+    rows = hconn.execute(
+        """
+        SELECT
+            ha.*,
+            (SELECT COUNT(*) FROM history_items hi WHERE hi.history_audit_id = ha.id) AS items_count,
+            (SELECT SUM(ABS(variance)) FROM history_items hi WHERE hi.history_audit_id = ha.id) AS variance_abs
+        FROM history_audits ha
+        ORDER BY ha.id DESC
+        """
+    ).fetchall()
+    hconn.close()
+    return render_template("admin_history.html", rows=rows)
+
+
+@app.route("/admin/history/<int:history_audit_id>/purge", methods=["POST"])
+@login_required
+@role_required("admin")
+def admin_history_purge(history_audit_id):
+    init_history_db()
+    hconn = get_history_conn()
+    hconn.execute("DELETE FROM history_sub_metrics WHERE history_audit_id = ?", (history_audit_id,))
+    hconn.execute("DELETE FROM history_items WHERE history_audit_id = ?", (history_audit_id,))
+    hconn.execute("DELETE FROM history_audits WHERE id = ?", (history_audit_id,))
+    hconn.commit()
+    hconn.close()
+    flash("Historical audit purged.", "success")
+    return redirect(url_for("admin_history"))
+
+
 @app.route("/admin/scanner-feedback")
 @login_required
 @role_required("admin")
@@ -1184,6 +1563,7 @@ def admin_audit_end(audit_id):
     db = get_db()
     db.execute("UPDATE audits SET status = 'ended' WHERE id = ?", (audit_id,))
     db.commit()
+    archive_audit_to_history(audit_id)
     flash("Audit marked as ended.", "success")
     return redirect(url_for("admin_audit_detail", audit_id=audit_id))
 
@@ -1306,6 +1686,117 @@ def outlet_audits():
         (user["outlet"], ALL_OUTLETS_VALUE),
     ).fetchall()
     return render_template("outlet_audits.html", audits=audits)
+
+
+@app.route("/outlet/analytics")
+@login_required
+@role_required("outlet_head")
+def outlet_analytics():
+    user = current_user()
+    outlet = user["outlet"]
+    init_history_db()
+    hconn = get_history_conn()
+    totals_row = hconn.execute(
+        """
+        SELECT
+            COUNT(*) AS items_count,
+            COALESCE(SUM(expected_qty), 0) AS expected_total,
+            COALESCE(SUM(scanned_qty), 0) AS scanned_total,
+            COALESCE(SUM(ABS(variance)), 0) AS variance_abs,
+            COALESCE(SUM(CASE WHEN variance = 0 THEN 1 ELSE 0 END), 0) AS perfect_items
+        FROM history_items
+        WHERE outlet = ?
+        """,
+        (outlet,),
+    ).fetchone()
+    totals = {
+        "items_count": int(totals_row["items_count"] or 0),
+        "expected_total": int(totals_row["expected_total"] or 0),
+        "scanned_total": int(totals_row["scanned_total"] or 0),
+        "variance_abs": int(totals_row["variance_abs"] or 0),
+        "perfect_items": int(totals_row["perfect_items"] or 0),
+    }
+    totals["completion_pct"] = round(
+        (totals["scanned_total"] / totals["expected_total"]) * 100, 2
+    ) if totals["expected_total"] else 0
+    totals["perfect_pct"] = round(
+        (totals["perfect_items"] / totals["items_count"]) * 100, 2
+    ) if totals["items_count"] else 0
+
+    rows = hconn.execute(
+        """
+        SELECT
+            department,
+            COUNT(*) AS items_count,
+            SUM(expected_qty) AS expected_total,
+            SUM(scanned_qty) AS scanned_total,
+            SUM(ABS(variance)) AS variance_abs,
+            SUM(CASE WHEN variance = 0 THEN 1 ELSE 0 END) AS perfect_items
+        FROM history_items
+        WHERE outlet = ?
+        GROUP BY department
+        ORDER BY variance_abs DESC
+        """,
+        (outlet,),
+    ).fetchall()
+    sub_eff_rows = hconn.execute(
+        """
+        SELECT
+            sub_auditor_id,
+            sub_name,
+            COUNT(*) AS assignments_total,
+            SUM(CASE WHEN frozen_at IS NOT NULL THEN 1 ELSE 0 END) AS assignments_frozen,
+            SUM(scans_count) AS scans_count,
+            SUM(scanned_qty_total) AS scanned_qty_total,
+            SUM(unique_barcodes) AS unique_barcodes,
+            MIN(first_scan_at) AS first_scan_at,
+            MAX(last_scan_at) AS last_scan_at,
+            (julianday(MAX(last_scan_at)) - julianday(MIN(first_scan_at))) * 24.0 * 60.0 AS active_minutes
+        FROM history_sub_metrics
+        WHERE outlet = ?
+        GROUP BY sub_auditor_id, sub_name
+        ORDER BY scanned_qty_total DESC
+        """,
+        (outlet,),
+    ).fetchall()
+    max_scanned_qty = max([int(r["scanned_qty_total"] or 0) for r in sub_eff_rows], default=0)
+    max_assignments = max([int(r["assignments_total"] or 0) for r in sub_eff_rows], default=0)
+    sub_eff = []
+    for r in sub_eff_rows:
+        assignments_total = int(r["assignments_total"] or 0)
+        assignments_frozen = int(r["assignments_frozen"] or 0)
+        scans_count = int(r["scans_count"] or 0)
+        scanned_qty_total = int(r["scanned_qty_total"] or 0)
+        unique_barcodes = int(r["unique_barcodes"] or 0)
+        completion_rate = (assignments_frozen / assignments_total) if assignments_total else 0
+        throughput_norm = (scanned_qty_total / max_scanned_qty) if max_scanned_qty else 0
+        coverage_norm = (assignments_total / max_assignments) if max_assignments else 0
+        diversity = min(1.0, (unique_barcodes / scans_count)) if scans_count else 0
+        efficiency_score = round(
+            (throughput_norm * 35) + (coverage_norm * 20) + (completion_rate * 25) + (diversity * 20), 2
+        )
+        sub_eff.append(
+            {
+                "sub_name": r["sub_name"],
+                "assignments_total": assignments_total,
+                "assignments_frozen": assignments_frozen,
+                "completion_pct": round(completion_rate * 100, 2),
+                "scans_count": scans_count,
+                "scanned_qty_total": scanned_qty_total,
+                "unique_barcodes": unique_barcodes,
+                "active_minutes": round(float(r["active_minutes"] or 0), 2) if r["active_minutes"] else 0,
+                "efficiency_score": efficiency_score,
+            }
+        )
+    sub_eff.sort(key=lambda x: (x["efficiency_score"], x["scanned_qty_total"]), reverse=True)
+    hconn.close()
+    return render_template(
+        "outlet_analytics.html",
+        outlet=outlet,
+        totals=totals,
+        rows=rows,
+        sub_eff=sub_eff,
+    )
 
 
 @app.route("/outlet/audits/<int:audit_id>/view")

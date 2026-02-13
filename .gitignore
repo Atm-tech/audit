@@ -5,3 +5,6 @@
 *.log
 *.xlsx
 audit.db
+history.db
+scanner_debug/
+_video_frames/

@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Outlet Analytics: {{ outlet }}</h4>
+  <a class="btn btn-outline-secondary" href="{{ url_for('outlet_audits') }}">Back to Audits</a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Items</div><div class="h4 mb-0">{{ totals['items_count'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Expected Qty</div><div class="h4 mb-0">{{ totals['expected_total'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Scanned Qty</div><div class="h4 mb-0">{{ totals['scanned_total'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Completion %</div><div class="h4 mb-0">{{ totals['completion_pct'] }}%</div></div></div>
+</div>
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Perfect Match %</div><div class="h4 mb-0">{{ totals['perfect_pct'] }}%</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Absolute Variance</div><div class="h4 mb-0">{{ totals['variance_abs'] }}</div></div></div>
+</div>
+
+<div class="card p-3 mb-3">
+  <h5>Department Performance</h5>
+  <table class="table table-sm mb-0">
+    <thead><tr><th>Department</th><th>Items</th><th>Expected</th><th>Scanned</th><th>Perfect</th><th>|Variance|</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r['department'] }}</td>
+        <td>{{ r['items_count'] }}</td>
+        <td>{{ r['expected_total'] }}</td>
+        <td>{{ r['scanned_total'] }}</td>
+        <td>{{ r['perfect_items'] }}</td>
+        <td>{{ r['variance_abs'] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card p-3">
+  <h5>Sub Auditor Efficiency ({{ outlet }})</h5>
+  <table class="table table-sm mb-0">
+    <thead><tr><th>Sub Auditor</th><th>Assignments</th><th>Frozen</th><th>Completion %</th><th>Scans</th><th>Qty</th><th>Unique Barcodes</th><th>Active Minutes</th><th>Efficiency Score</th></tr></thead>
+    <tbody>
+      {% for r in sub_eff %}
+      <tr>
+        <td>{{ r['sub_name'] }}</td>
+        <td>{{ r['assignments_total'] }}</td>
+        <td>{{ r['assignments_frozen'] }}</td>
+        <td>{{ r['completion_pct'] }}%</td>
+        <td>{{ r['scans_count'] }}</td>
+        <td>{{ r['scanned_qty_total'] }}</td>
+        <td>{{ r['unique_barcodes'] }}</td>
+        <td>{{ r['active_minutes'] }}</td>
+        <td><strong>{{ r['efficiency_score'] }}</strong></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

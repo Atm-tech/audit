@@ -59,8 +59,8 @@
 {% if not assignment['is_frozen'] and assignment['status'] != 'ended' %}
 <style>
   #scannerBox {
-    max-width: 540px;
-    height: 260px;
+    width: min(100%, 540px);
+    aspect-ratio: 3 / 1;
     overflow: hidden;
     position: relative;
     background: #111;

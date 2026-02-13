@@ -39,6 +39,11 @@ python app.py
 
 Open: `http://127.0.0.1:5000`
 
+## Database Storage
+- SQLite is now local persistent only.
+- DB path defaults to: `audit.db` in project folder.
+- Optional override: set `APP_DATA_DIR` to a fixed local folder.
+
 Default admin login:
 - Name: `admin`
 - Phone: `9111080628`
