@@ -126,6 +126,10 @@
       const supported = window.Html5QrcodeSupportedFormats || {};
       const formats = [
         supported.CODE_128,
+        supported.CODE_39,
+        supported.CODE_93,
+        supported.CODABAR,
+        supported.ITF,
         supported.EAN_13,
         supported.EAN_8,
         supported.UPC_A,
@@ -134,33 +138,40 @@
 
       scanner = new Html5Qrcode(scannerId, formats.length ? { formatsToSupport: formats } : {});
 
+      const onDetected = (decodedText) => {
+        const text = (decodedText || "").trim();
+        const now = Date.now();
+        if (!text) return;
+        if (text === lastScanned && now - lastScannedAt < 2000) return;
+        lastScanned = text;
+        lastScannedAt = now;
+        barcodeInput.value = text;
+        beep();
+        setStatus("Barcode captured. Tap Save Scan.");
+        barcodeInput.focus();
+      };
+
       try {
+        // Match incentive-app style: fixed fps and narrow scan strip.
         await scanner.start(
           { deviceId: { exact: selectedId } },
-          {
-            fps: 12,
-            qrbox: { width: 300, height: 100 },
-            disableFlip: true,
-            showTorchButtonIfSupported: true,
-            showZoomSliderIfSupported: true
-          },
-          (decodedText) => {
-            const text = (decodedText || "").trim();
-            const now = Date.now();
-            if (!text) return;
-            if (text === lastScanned && now - lastScannedAt < 1500) return;
-            lastScanned = text;
-            lastScannedAt = now;
-            barcodeInput.value = text;
-            beep();
-            setStatus("Barcode captured. Tap Save Scan.");
-            barcodeInput.focus();
-          },
+          { fps: 10, qrbox: { width: 300, height: 50 } },
+          onDetected,
           () => {}
         );
       } catch (err) {
-        setStatus("Scanner failed to start on selected camera.");
-        return;
+        // Fallback to environment-facing if deviceId exact fails on some mobiles.
+        try {
+          await scanner.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 300, height: 50 } },
+            onDetected,
+            () => {}
+          );
+        } catch (err2) {
+          setStatus("Scanner failed to start. Allow camera access and retry.");
+          return;
+        }
       }
 
       isRunning = true;
