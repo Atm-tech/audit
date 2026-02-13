@@ -1,7 +1,7 @@
 export default async function handler(req, res) {
   const backendOrigin =
     process.env.BACKEND_ORIGIN ||
-    "https://f6da-122-168-112-31.ngrok-free.app";
+    "https://6f5a-122-168-112-31.ngrok-free.app";
 
   const rawPath = Array.isArray(req.query.path)
     ? req.query.path.join("/")
