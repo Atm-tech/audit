@@ -335,6 +335,10 @@ def login_required(func):
     def wrapper(*args, **kwargs):
         if "user_id" not in session:
             return redirect(url_for("login"))
+        if not current_user():
+            session.clear()
+            flash("Session expired. Please login again.", "danger")
+            return redirect(url_for("login"))
         return func(*args, **kwargs)
 
     return wrapper
@@ -751,6 +755,9 @@ def logout():
 @login_required
 def dashboard():
     user = current_user()
+    if not user:
+        session.clear()
+        return redirect(url_for("login"))
     if user["role"] == "admin":
         return redirect(url_for("admin_audits"))
     if user["role"] == "outlet_head":
