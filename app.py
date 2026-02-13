@@ -27,6 +27,7 @@ IS_VERCEL = os.getenv("VERCEL") == "1"
 DATA_DIR = os.getenv("APP_DATA_DIR", "/tmp" if IS_VERCEL else BASE_DIR)
 os.makedirs(DATA_DIR, exist_ok=True)
 DATABASE = os.path.join(DATA_DIR, "audit.db")
+SEED_SQL_PATH = os.path.join(BASE_DIR, "seed_data.sql")
 DEFAULT_ADMIN_NAME = "admin"
 DEFAULT_ADMIN_PHONE = "9111080628"
 DEFAULT_ADMIN_PASSWORD = "1234"
@@ -141,6 +142,7 @@ def init_db():
     )
     migrate_assignments_table(db)
     migrate_scans_table(db)
+    bootstrap_seed_data_if_empty(db)
 
     # Backfill outlets from existing data for smooth upgrades.
     db.execute(
@@ -187,6 +189,18 @@ def init_db():
             ),
         )
     db.commit()
+
+
+def bootstrap_seed_data_if_empty(db):
+    if not os.path.exists(SEED_SQL_PATH):
+        return
+    row = db.execute("SELECT COUNT(*) AS c FROM users").fetchone()
+    if row and row["c"] > 0:
+        return
+    with open(SEED_SQL_PATH, "r", encoding="utf-8") as f:
+        sql = f.read().strip()
+    if sql:
+        db.executescript(sql)
 
 
 def migrate_assignments_table(db):
