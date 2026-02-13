@@ -7,7 +7,6 @@
 {% if not assignment['is_frozen'] and assignment['status'] != 'ended' %}
 <div class="card p-3 mb-3">
   <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-    <select id="cameraSelect" class="form-select form-select-sm" style="max-width: 280px;"></select>
     <button id="startCameraBtn" type="button" class="btn btn-outline-primary btn-sm">Start Camera Scanner</button>
     <button id="stopCameraBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Stop</button>
     <span id="scannerStatus" class="small-muted">Camera scanner is off.</span>
@@ -69,11 +68,9 @@
     const startBtn = document.getElementById("startCameraBtn");
     const stopBtn = document.getElementById("stopCameraBtn");
     const statusEl = document.getElementById("scannerStatus");
-    const cameraSelect = document.getElementById("cameraSelect");
     const scannerId = "scannerBox";
     let scanner = null;
     let isRunning = false;
-    let cameras = [];
     let lastScanned = "";
     let lastScannedAt = 0;
 
@@ -100,42 +97,32 @@
       if (navigator.vibrate) navigator.vibrate(80);
     }
 
-    function loadCameraOptions(list) {
-      cameraSelect.innerHTML = "";
-      list.forEach((cam, idx) => {
-        const opt = document.createElement("option");
-        opt.value = cam.id;
-        opt.textContent = cam.label || `Camera ${idx + 1}`;
-        cameraSelect.appendChild(opt);
-      });
-      const rear = list.find((d) => (d.label || "").toLowerCase().includes("back"));
-      if (rear) cameraSelect.value = rear.id;
-    }
-
-    async function initCameras() {
+    async function getRearCameraId() {
       if (!window.Html5Qrcode) {
         setStatus("Scanner library failed to load.");
-        return false;
+        return null;
       }
+      let cameras = [];
       try {
         cameras = await Html5Qrcode.getCameras();
       } catch (err) {
         setStatus("Camera access denied. Allow permission and reload.");
-        return false;
+        return null;
       }
       if (!cameras || cameras.length === 0) {
         setStatus("No camera found on this device.");
-        return false;
+        return null;
       }
-      loadCameraOptions(cameras);
-      return true;
+      const rearCam =
+        cameras.find((d) => (d.label || "").toLowerCase().includes("back")) ||
+        cameras[0];
+      return rearCam.id;
     }
 
     async function startScanner() {
       if (isRunning) return;
-      if (!(await initCameras())) return;
-
-      const selectedId = cameraSelect.value || cameras[0].id;
+      const selectedId = await getRearCameraId();
+      if (!selectedId) return;
       const supported = window.Html5QrcodeSupportedFormats || {};
       const formats = [
         supported.CODE_128,
@@ -152,7 +139,7 @@
           { deviceId: { exact: selectedId } },
           {
             fps: 12,
-            aspectRatio: 1.777,
+            qrbox: { width: 300, height: 100 },
             disableFlip: true,
             showTorchButtonIfSupported: true,
             showZoomSliderIfSupported: true
@@ -194,20 +181,11 @@
       setStatus("Camera scanner is off.");
     }
 
-    cameraSelect.addEventListener("change", async () => {
-      if (isRunning) {
-        await stopScanner();
-        await startScanner();
-      }
-    });
-
     startBtn.addEventListener("click", startScanner);
     stopBtn.addEventListener("click", stopScanner);
     window.addEventListener("beforeunload", () => {
       if (scanner && isRunning) scanner.stop().catch(() => {});
     });
-
-    initCameras();
   })();
 </script>
 {% endif %}
