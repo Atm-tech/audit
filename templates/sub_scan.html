@@ -4,6 +4,18 @@
   <h4>Scan: {{ assignment['audit_name'] }} / {{ assignment['outlet'] }} / {{ assignment['department'] }}</h4>
   <a class="btn btn-outline-primary" href="{{ url_for('sub_assignments') }}">Back</a>
 </div>
+{% if not assignment['is_frozen'] and assignment['status'] != 'ended' %}
+<div class="card p-3 mb-3">
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+    <select id="cameraSelect" class="form-select form-select-sm" style="max-width: 280px;"></select>
+    <button id="startCameraBtn" type="button" class="btn btn-outline-primary btn-sm">Start Camera Scanner</button>
+    <button id="stopCameraBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Stop</button>
+    <span id="scannerStatus" class="small-muted">Camera scanner is off.</span>
+  </div>
+  <div id="scannerBox" class="border rounded" style="max-width: 540px; min-height: 280px;"></div>
+  <div class="small-muted mt-2">Keep barcode centered and steady. Scanner fills barcode automatically.</div>
+</div>
+{% endif %}
 <div class="card p-3 mb-3">
   <form method="post" class="row g-2">
     <div class="col-md-5">
@@ -21,17 +33,6 @@
     </div>
   </form>
 </div>
-{% if not assignment['is_frozen'] and assignment['status'] != 'ended' %}
-<div class="card p-3 mb-3">
-  <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-    <button id="startCameraBtn" type="button" class="btn btn-outline-primary btn-sm">Start Camera Scanner</button>
-    <button id="stopCameraBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Stop</button>
-    <span id="scannerStatus" class="small-muted">Camera scanner is off.</span>
-  </div>
-  <div id="scannerBox" class="border rounded" style="max-width: 420px; min-height: 240px;"></div>
-  <div class="small-muted mt-2">Point camera at barcode. On detection, value is auto-filled.</div>
-</div>
-{% endif %}
 <div class="card p-3 mb-3">
   <form method="post" action="{{ url_for('sub_freeze', assignment_id=assignment['id']) }}">
     <button class="btn btn-warning" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>Freeze Department Audit</button>
@@ -56,7 +57,7 @@
 <style>
   #scannerBox video {
     width: 100% !important;
-    max-height: 220px !important;
+    max-height: 280px !important;
     object-fit: cover;
     border-radius: 8px;
   }
@@ -68,9 +69,11 @@
     const startBtn = document.getElementById("startCameraBtn");
     const stopBtn = document.getElementById("stopCameraBtn");
     const statusEl = document.getElementById("scannerStatus");
+    const cameraSelect = document.getElementById("cameraSelect");
     const scannerId = "scannerBox";
     let scanner = null;
     let isRunning = false;
+    let cameras = [];
     let lastScanned = "";
     let lastScannedAt = 0;
 
@@ -97,63 +100,82 @@
       if (navigator.vibrate) navigator.vibrate(80);
     }
 
-    async function startScanner() {
-      if (isRunning) return;
+    function loadCameraOptions(list) {
+      cameraSelect.innerHTML = "";
+      list.forEach((cam, idx) => {
+        const opt = document.createElement("option");
+        opt.value = cam.id;
+        opt.textContent = cam.label || `Camera ${idx + 1}`;
+        cameraSelect.appendChild(opt);
+      });
+      const rear = list.find((d) => (d.label || "").toLowerCase().includes("back"));
+      if (rear) cameraSelect.value = rear.id;
+    }
+
+    async function initCameras() {
       if (!window.Html5Qrcode) {
         setStatus("Scanner library failed to load.");
-        return;
+        return false;
       }
       try {
-        const devices = await Html5Qrcode.getCameras();
-        if (!devices || devices.length === 0) {
-          setStatus("No camera found on this device.");
-          return;
-        }
-        const rearCam =
-          devices.find((d) => (d.label || "").toLowerCase().includes("back")) ||
-          devices[0];
-        scanner = new Html5Qrcode(scannerId, {
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E
-          ]
-        });
-        const onDetected = (decodedText) => {
-          const text = (decodedText || "").trim();
-          const now = Date.now();
-          if (text === lastScanned && now - lastScannedAt < 2000) return;
-          lastScanned = text;
-          lastScannedAt = now;
-          barcodeInput.value = text;
-          beep();
-          setStatus("Barcode captured. Tap Save Scan.");
-          barcodeInput.focus();
-        };
-        const onError = () => {};
-
-        // Prefer rear camera via facingMode first; fallback to detected camera id.
-        try {
-          await scanner.start(
-            { facingMode: { exact: "environment" } },
-            { fps: 10, aspectRatio: 1.777, disableFlip: true },
-            onDetected,
-            onError
-          );
-        } catch (e) {
-          await scanner.start(
-            { deviceId: { exact: rearCam.id } },
-            { fps: 10, aspectRatio: 1.777, disableFlip: true },
-            onDetected,
-            onError
-          );
-        }
+        cameras = await Html5Qrcode.getCameras();
       } catch (err) {
-        setStatus("Could not start camera scanner. Allow camera permission and use HTTPS.");
+        setStatus("Camera access denied. Allow permission and reload.");
+        return false;
+      }
+      if (!cameras || cameras.length === 0) {
+        setStatus("No camera found on this device.");
+        return false;
+      }
+      loadCameraOptions(cameras);
+      return true;
+    }
+
+    async function startScanner() {
+      if (isRunning) return;
+      if (!(await initCameras())) return;
+
+      const selectedId = cameraSelect.value || cameras[0].id;
+      const supported = window.Html5QrcodeSupportedFormats || {};
+      const formats = [
+        supported.CODE_128,
+        supported.EAN_13,
+        supported.EAN_8,
+        supported.UPC_A,
+        supported.UPC_E
+      ].filter((x) => x !== undefined);
+
+      scanner = new Html5Qrcode(scannerId, formats.length ? { formatsToSupport: formats } : {});
+
+      try {
+        await scanner.start(
+          { deviceId: { exact: selectedId } },
+          {
+            fps: 12,
+            aspectRatio: 1.777,
+            disableFlip: true,
+            showTorchButtonIfSupported: true,
+            showZoomSliderIfSupported: true
+          },
+          (decodedText) => {
+            const text = (decodedText || "").trim();
+            const now = Date.now();
+            if (!text) return;
+            if (text === lastScanned && now - lastScannedAt < 1500) return;
+            lastScanned = text;
+            lastScannedAt = now;
+            barcodeInput.value = text;
+            beep();
+            setStatus("Barcode captured. Tap Save Scan.");
+            barcodeInput.focus();
+          },
+          () => {}
+        );
+      } catch (err) {
+        setStatus("Scanner failed to start on selected camera.");
         return;
       }
+
       isRunning = true;
       startBtn.disabled = true;
       stopBtn.disabled = false;
@@ -172,13 +194,20 @@
       setStatus("Camera scanner is off.");
     }
 
+    cameraSelect.addEventListener("change", async () => {
+      if (isRunning) {
+        await stopScanner();
+        await startScanner();
+      }
+    });
+
     startBtn.addEventListener("click", startScanner);
     stopBtn.addEventListener("click", stopScanner);
     window.addEventListener("beforeunload", () => {
-      if (scanner && isRunning) {
-        scanner.stop().catch(() => {});
-      }
+      if (scanner && isRunning) scanner.stop().catch(() => {});
     });
+
+    initCameras();
   })();
 </script>
 {% endif %}
