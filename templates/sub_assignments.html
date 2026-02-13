@@ -1,0 +1,28 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">My Department Assignments</h4>
+<div class="card p-3">
+  <table class="table">
+    <thead><tr><th>Audit</th><th>Outlet</th><th>Department</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for a in assignments %}
+      <tr>
+        <td>{{ a['audit_name'] }}</td>
+        <td>{{ a['outlet'] if a['outlet'] else a['tag_outlet'] }}</td>
+        <td>{{ a['department'] }}</td>
+        <td>
+          {% if a['status'] == 'ended' %}
+            Audit Ended
+          {% elif a['is_frozen'] %}
+            Frozen
+          {% else %}
+            Active
+          {% endif %}
+        </td>
+        <td><a class="btn btn-sm btn-primary" href="{{ url_for('sub_scan', assignment_id=a['id']) }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

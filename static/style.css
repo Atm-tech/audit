@@ -1,0 +1,17 @@
+﻿body {
+  background: #f6f8fa;
+}
+.navbar-brand {
+  font-weight: 700;
+}
+.card {
+  border: none;
+  box-shadow: 0 2px 10px rgba(0,0,0,.06);
+}
+.table td, .table th {
+  vertical-align: middle;
+}
+.small-muted {
+  color: #6c757d;
+  font-size: 0.9rem;
+}

@@ -1,0 +1,20 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">Outlet Head: Your Outlet Audits</h4>
+<div class="card p-3">
+  <table class="table">
+    <thead><tr><th>ID</th><th>Name</th><th>Dates</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for a in audits %}
+      <tr>
+        <td>{{ a['id'] }}</td>
+        <td>{{ a['name'] }}</td>
+        <td>{{ a['start_date'] }} to {{ a['end_date'] }}</td>
+        <td>{{ a['status'] }}</td>
+        <td><a class="btn btn-sm btn-primary" href="{{ url_for('outlet_assign', audit_id=a['id']) }}">Assign Departments</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

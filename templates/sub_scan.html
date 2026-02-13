@@ -1,0 +1,46 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Scan: {{ assignment['audit_name'] }} / {{ assignment['outlet'] }} / {{ assignment['department'] }}</h4>
+  <a class="btn btn-outline-primary" href="{{ url_for('sub_assignments') }}">Back</a>
+</div>
+<div class="card p-3 mb-3">
+  <form method="post" class="row g-2">
+    <div class="col-md-5">
+      <input class="form-control" name="barcode" placeholder="Scan or enter barcode" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %} required>
+    </div>
+    <div class="col-md-2">
+      <input class="form-control" type="number" min="1" name="qty" value="1" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>
+    </div>
+    <div class="col-md-2 d-flex align-items-center">
+      <input type="checkbox" class="form-check-input me-2" name="manual_entry" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>
+      <label class="form-check-label">Manual</label>
+    </div>
+    <div class="col-md-3">
+      <button class="btn btn-success w-100" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>Save Scan</button>
+    </div>
+  </form>
+</div>
+<div class="card p-3 mb-3">
+  <form method="post" action="{{ url_for('sub_freeze', assignment_id=assignment['id']) }}">
+    <button class="btn btn-warning" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>Freeze Department Audit</button>
+  </form>
+  <div class="small-muted mt-2">Once frozen, only admin can unfreeze.</div>
+</div>
+<div class="card p-3">
+  <table class="table table-sm">
+    <thead><tr><th>Barcode</th><th>Article</th><th>Expected</th><th>Scanned</th><th>Variance</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r['barcode'] }}</td>
+        <td>{{ r['article_name'] }}</td>
+        <td>{{ r['expected_qty'] }}</td>
+        <td>{{ r['scanned_qty'] }}</td>
+        <td>{{ r['variance'] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

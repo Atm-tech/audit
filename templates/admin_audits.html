@@ -1,0 +1,34 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Admin: Audits</h4>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin_users') }}">Manage Users</a>
+    <a class="btn btn-primary" href="{{ url_for('admin_audit_new') }}">Create Audit</a>
+  </div>
+</div>
+<div class="card p-3">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ID</th><th>Name</th><th>Outlet</th><th>Dates</th><th>Status</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in audits %}
+      <tr>
+        <td>{{ a['id'] }}</td>
+        <td>{{ a['name'] }}</td>
+        <td>{{ a['tag_outlet'] }}</td>
+        <td>{{ a['start_date'] }} to {{ a['end_date'] }}</td>
+        <td>{{ a['status'] }}</td>
+        <td class="d-flex gap-2">
+          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_audit_detail', audit_id=a['id']) }}">Open</a>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_audit_view', audit_id=a['id']) }}">View Audit</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

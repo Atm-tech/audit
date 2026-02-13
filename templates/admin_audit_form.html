@@ -1,0 +1,52 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>{{ 'Create Audit' if mode == 'create' else 'Edit Audit' }}</h4>
+  <div class="d-flex gap-2">
+    {% if mode == 'create' %}
+      <a class="btn btn-outline-success" href="{{ url_for('admin_audit_sample_csv') }}">Download Sample CSV</a>
+    {% endif %}
+    <a class="btn btn-outline-primary" href="{{ url_for('admin_audits') }}">Back</a>
+  </div>
+</div>
+<div class="card p-3">
+  <form method="post" enctype="multipart/form-data" class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Audit Name</label>
+      <input class="form-control" name="name" value="{{ audit['name'] if audit else '' }}" required>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Tag Outlet</label>
+      <select class="form-select" name="tag_outlet" required>
+        <option value="">Select outlet</option>
+        <option value="{{ all_outlets_value }}" {% if audit and audit['tag_outlet'] == all_outlets_value %}selected{% endif %}>All Outlets</option>
+        {% for outlet in outlets %}
+          <option value="{{ outlet }}" {% if audit and audit['tag_outlet'] == outlet %}selected{% endif %}>{{ outlet }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12">
+      <label class="form-label">Description</label>
+      <textarea class="form-control" name="description" rows="3">{{ audit['description'] if audit else '' }}</textarea>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Start Date</label>
+      <input class="form-control" type="date" name="start_date" value="{{ audit['start_date'] if audit else '' }}" required>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">End Date</label>
+      <input class="form-control" type="date" name="end_date" value="{{ audit['end_date'] if audit else '' }}" required>
+    </div>
+    {% if mode == 'create' %}
+    <div class="col-md-6">
+      <label class="form-label">Upload CSV/Excel (barcode, qty, department, article name, outlet)</label>
+      <input class="form-control" type="file" name="audit_file" accept=".csv,.xls,.xlsx" required>
+      <div class="small-muted mt-1">If upload fails, error will show exact row and missing/wrong value.</div>
+    </div>
+    {% endif %}
+    <div class="col-12">
+      <button class="btn btn-success">{{ 'Create Audit' if mode == 'create' else 'Save Changes' }}</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

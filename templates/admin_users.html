@@ -1,0 +1,77 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Admin: User Management</h4>
+  <a class="btn btn-outline-primary" href="{{ url_for('admin_audits') }}">Back to Audits</a>
+</div>
+<div class="card p-3 mb-3">
+  <h6>Create Outlet</h6>
+  <form method="post" class="row g-2">
+    <input type="hidden" name="form_type" value="create_outlet">
+    <div class="col-md-10"><input class="form-control" name="outlet_name" placeholder="Outlet name" required></div>
+    <div class="col-md-2"><button class="btn btn-primary w-100">Add Outlet</button></div>
+  </form>
+  <div class="mt-3">
+    <span class="small-muted">Configured outlets:</span>
+    {% for outlet in outlets %}
+      <span class="badge text-bg-light border">{{ outlet }}</span>
+    {% endfor %}
+  </div>
+</div>
+<div class="card p-3 mb-3">
+  <h6>Create Outlet Alias</h6>
+  <form method="post" class="row g-2">
+    <input type="hidden" name="form_type" value="create_alias">
+    <div class="col-md-5"><input class="form-control" name="alias" placeholder="Alias (example: NDLS, N.D.L.S)" required></div>
+    <div class="col-md-5">
+      <select class="form-select" name="outlet" required>
+        <option value="">Map to outlet</option>
+        {% for outlet in outlets %}
+          <option value="{{ outlet }}">{{ outlet }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2"><button class="btn btn-outline-primary w-100" {% if not outlets %}disabled{% endif %}>Add Alias</button></div>
+  </form>
+  <div class="mt-3">
+    <span class="small-muted">Aliases:</span>
+    {% for a in aliases %}
+      <span class="badge text-bg-light border">{{ a['alias'] }} -> {{ a['outlet_name'] }}</span>
+    {% endfor %}
+  </div>
+</div>
+<div class="card p-3 mb-3">
+  <h6>Create Outlet Head</h6>
+  <form method="post" class="row g-2">
+    <input type="hidden" name="form_type" value="create_outlet_head">
+    <div class="col-md-3"><input class="form-control" name="name" placeholder="Name" required></div>
+    <div class="col-md-3"><input class="form-control" name="phone" placeholder="Phone" required></div>
+    <div class="col-md-3">
+      <select class="form-select" name="outlet" required>
+        <option value="">Select outlet</option>
+        {% for outlet in outlets %}
+          <option value="{{ outlet }}">{{ outlet }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2"><input class="form-control" type="password" name="password" placeholder="Password" required></div>
+    <div class="col-md-1"><button class="btn btn-success w-100" {% if not outlets %}disabled{% endif %}>Add</button></div>
+  </form>
+</div>
+<div class="card p-3">
+  <table class="table">
+    <thead><tr><th>Name</th><th>Phone</th><th>Role</th><th>Outlet</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u['name'] }}</td>
+        <td>{{ u['phone'] }}</td>
+        <td>{{ u['role'] }}</td>
+        <td>{{ u['outlet'] }}</td>
+        <td>{{ u['created_at'] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,53 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Audit #{{ audit['id'] }} - {{ audit['name'] }}</h4>
+  <a class="btn btn-outline-primary" href="{{ url_for('admin_audits') }}">Back</a>
+</div>
+<div class="card p-3 mb-3">
+  <div class="row">
+    <div class="col-md-8">
+      <p><strong>Outlet:</strong> {{ audit['tag_outlet'] }}</p>
+      <p><strong>Dates:</strong> {{ audit['start_date'] }} to {{ audit['end_date'] }}</p>
+      <p><strong>Status:</strong> {{ audit['status'] }}</p>
+      <p><strong>Description:</strong> {{ audit['description'] }}</p>
+    </div>
+    <div class="col-md-4">
+      <div class="small-muted">Items: {{ items_count }}</div>
+      <div class="small-muted">Scan entries: {{ scans_count }}</div>
+      <div class="d-grid gap-2 mt-2">
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_audit_view', audit_id=audit['id']) }}">View Audit</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_audit_edit', audit_id=audit['id']) }}">Edit</a>
+        <a class="btn btn-sm btn-outline-success" href="{{ url_for('admin_audit_export', audit_id=audit['id']) }}">Download Excel</a>
+        <form method="post" action="{{ url_for('admin_audit_end', audit_id=audit['id']) }}">
+          <button class="btn btn-sm btn-warning w-100">End Audit</button>
+        </form>
+        <form method="post" action="{{ url_for('admin_audit_delete', audit_id=audit['id']) }}" onsubmit="return confirm('Delete this audit?')">
+          <button class="btn btn-sm btn-danger w-100">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card p-3">
+  <h6>Department Assignments</h6>
+  <table class="table">
+    <thead><tr><th>Outlet</th><th>Department</th><th>Sub Auditor</th><th>Frozen</th><th>Action</th></tr></thead>
+    <tbody>
+      {% for a in assignments %}
+      <tr>
+        <td>{{ a['outlet'] }}</td>
+        <td>{{ a['department'] }}</td>
+        <td>{{ a['sub_name'] }}</td>
+        <td>{{ 'Yes' if a['is_frozen'] else 'No' }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_toggle_unfreeze', assignment_id=a['id']) }}">
+            <button class="btn btn-sm btn-outline-primary">{{ 'Unfreeze' if a['is_frozen'] else 'Freeze' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
