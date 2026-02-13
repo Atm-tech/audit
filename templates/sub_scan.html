@@ -56,7 +56,7 @@
 <style>
   #scannerBox video {
     width: 100% !important;
-    max-height: 280px !important;
+    max-height: 320px !important;
     object-fit: cover;
     border-radius: 8px;
   }
@@ -123,20 +123,7 @@
       if (isRunning) return;
       const selectedId = await getRearCameraId();
       if (!selectedId) return;
-      const supported = window.Html5QrcodeSupportedFormats || {};
-      const formats = [
-        supported.CODE_128,
-        supported.CODE_39,
-        supported.CODE_93,
-        supported.CODABAR,
-        supported.ITF,
-        supported.EAN_13,
-        supported.EAN_8,
-        supported.UPC_A,
-        supported.UPC_E
-      ].filter((x) => x !== undefined);
-
-      scanner = new Html5Qrcode(scannerId, formats.length ? { formatsToSupport: formats } : {});
+      scanner = new Html5Qrcode(scannerId);
 
       const onDetected = (decodedText) => {
         const text = (decodedText || "").trim();
@@ -169,8 +156,18 @@
             () => {}
           );
         } catch (err2) {
-          setStatus("Scanner failed to start. Allow camera access and retry.");
-          return;
+          // Final fallback: full frame scanning for devices where narrow qrbox fails.
+          try {
+            await scanner.start(
+              { facingMode: "environment" },
+              { fps: 8 },
+              onDetected,
+              () => {}
+            );
+          } catch (err3) {
+            setStatus("Scanner failed to start. Allow camera access and retry.");
+            return;
+          }
         }
       }
 
