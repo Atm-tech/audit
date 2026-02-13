@@ -7,7 +7,7 @@
 <div class="card p-3 mb-3">
   <form method="post" class="row g-2">
     <div class="col-md-5">
-      <input class="form-control" name="barcode" placeholder="Scan or enter barcode" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %} required>
+      <input id="barcodeInput" class="form-control" name="barcode" placeholder="Scan or enter barcode" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %} required>
     </div>
     <div class="col-md-2">
       <input class="form-control" type="number" min="1" name="qty" value="1" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>
@@ -21,6 +21,17 @@
     </div>
   </form>
 </div>
+{% if not assignment['is_frozen'] and assignment['status'] != 'ended' %}
+<div class="card p-3 mb-3">
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+    <button id="startCameraBtn" type="button" class="btn btn-outline-primary btn-sm">Start Camera Scanner</button>
+    <button id="stopCameraBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Stop</button>
+    <span id="scannerStatus" class="small-muted">Camera scanner is off.</span>
+  </div>
+  <div id="scannerBox" class="border rounded" style="max-width: 420px; min-height: 240px;"></div>
+  <div class="small-muted mt-2">Point camera at barcode. On detection, value is auto-filled.</div>
+</div>
+{% endif %}
 <div class="card p-3 mb-3">
   <form method="post" action="{{ url_for('sub_freeze', assignment_id=assignment['id']) }}">
     <button class="btn btn-warning" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>Freeze Department Audit</button>
@@ -41,4 +52,69 @@
     </tbody>
   </table>
 </div>
+{% if not assignment['is_frozen'] and assignment['status'] != 'ended' %}
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+  (() => {
+    const barcodeInput = document.getElementById("barcodeInput");
+    const startBtn = document.getElementById("startCameraBtn");
+    const stopBtn = document.getElementById("stopCameraBtn");
+    const statusEl = document.getElementById("scannerStatus");
+    const scannerId = "scannerBox";
+    let scanner = null;
+    let isRunning = false;
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    async function startScanner() {
+      if (isRunning) return;
+      if (!window.Html5Qrcode) {
+        setStatus("Scanner library failed to load.");
+        return;
+      }
+      scanner = new Html5Qrcode(scannerId);
+      try {
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 280, height: 120 } },
+          (decodedText) => {
+            barcodeInput.value = decodedText.trim();
+            setStatus("Barcode captured.");
+            barcodeInput.focus();
+          },
+          () => {}
+        );
+        isRunning = true;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        setStatus("Camera scanner is running.");
+      } catch (err) {
+        setStatus("Could not start camera scanner.");
+      }
+    }
+
+    async function stopScanner() {
+      if (!scanner || !isRunning) return;
+      try {
+        await scanner.stop();
+        await scanner.clear();
+      } catch (err) {}
+      isRunning = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      setStatus("Camera scanner is off.");
+    }
+
+    startBtn.addEventListener("click", startScanner);
+    stopBtn.addEventListener("click", stopScanner);
+    window.addEventListener("beforeunload", () => {
+      if (scanner && isRunning) {
+        scanner.stop().catch(() => {});
+      }
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}
