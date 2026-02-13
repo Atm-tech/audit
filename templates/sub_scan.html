@@ -11,6 +11,10 @@
     <button id="stopCameraBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Stop</button>
     <span id="scannerStatus" class="small-muted">Camera scanner is off.</span>
   </div>
+  <div id="zoomWrap" class="mb-2" style="max-width: 420px; display: none;">
+    <label for="zoomSlider" class="form-label mb-1">Zoom</label>
+    <input id="zoomSlider" type="range" class="form-range" min="1" max="3" step="0.1" value="1">
+  </div>
   <div id="scannerBox" class="border rounded"></div>
   <div class="small-muted mt-2">Auto mode: each detection saves +1. Manual mode: fill textbox and edit qty. Tap scanner area to help camera focus.</div>
 </div>
@@ -95,6 +99,8 @@
     const startBtn = document.getElementById("startCameraBtn");
     const stopBtn = document.getElementById("stopCameraBtn");
     const statusEl = document.getElementById("scannerStatus");
+    const zoomWrap = document.getElementById("zoomWrap");
+    const zoomSlider = document.getElementById("zoomSlider");
     const scannerId = "scannerBox";
     const feedbackUrl = "{{ url_for('sub_scanner_feedback', assignment_id=assignment['id']) }}";
 
@@ -104,9 +110,50 @@
     let lastScannedAt = 0;
     let submitInFlight = false;
     let noDetectTimer = null;
+    let activeTrack = null;
+    let zoomSupported = false;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
+    }
+
+    function resetZoomUi() {
+      zoomWrap.style.display = "none";
+      zoomSlider.value = "1";
+      activeTrack = null;
+      zoomSupported = false;
+    }
+
+    async function trySetupZoom() {
+      const videoEl = document.querySelector("#scannerBox video");
+      if (!videoEl || !videoEl.srcObject) return;
+      const tracks = videoEl.srcObject.getVideoTracks();
+      if (!tracks || tracks.length === 0) return;
+      const track = tracks[0];
+      const caps = (typeof track.getCapabilities === "function") ? track.getCapabilities() : {};
+      if (!caps || typeof caps.zoom === "undefined") return;
+
+      const settings = (typeof track.getSettings === "function") ? track.getSettings() : {};
+      const min = Number(caps.zoom.min || 1);
+      const max = Number(caps.zoom.max || 3);
+      const step = Number(caps.zoom.step || 0.1);
+      const current = Number(settings.zoom || min);
+
+      activeTrack = track;
+      zoomSupported = true;
+      zoomSlider.min = String(min);
+      zoomSlider.max = String(max);
+      zoomSlider.step = String(step);
+      zoomSlider.value = String(current);
+      zoomWrap.style.display = "block";
+      sendFeedback("zoom_available", "camera-zoom-supported", { min, max, step, current });
+    }
+
+    async function applyZoom(value) {
+      if (!zoomSupported || !activeTrack) return;
+      try {
+        await activeTrack.applyConstraints({ advanced: [{ zoom: Number(value) }] });
+      } catch (err) {}
     }
 
     async function sendFeedback(event, message = "", details = {}, includeSnapshot = false) {
@@ -288,6 +335,7 @@
       stopBtn.disabled = false;
       setStatus("Camera scanner is running.");
       sendFeedback("scanner_started", "camera-started", { manual_mode: manualMode.checked, user_agent: navigator.userAgent });
+      setTimeout(() => { trySetupZoom(); }, 700);
 
       clearTimeout(noDetectTimer);
       noDetectTimer = setTimeout(() => {
@@ -310,11 +358,13 @@
       stopBtn.disabled = true;
       setStatus("Camera scanner is off.");
       clearTimeout(noDetectTimer);
+      resetZoomUi();
       sendFeedback("scanner_stopped", "camera-stopped");
     }
 
     startBtn.addEventListener("click", startScanner);
     stopBtn.addEventListener("click", stopScanner);
+    zoomSlider.addEventListener("input", (e) => applyZoom(e.target.value));
     manualMode.addEventListener("change", applyModeState);
     document.getElementById("scannerBox").addEventListener("click", (e) => {
       const box = e.currentTarget;
