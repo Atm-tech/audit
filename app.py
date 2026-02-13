@@ -23,7 +23,10 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-DATABASE = os.path.join(BASE_DIR, "audit.db")
+IS_VERCEL = os.getenv("VERCEL") == "1"
+DATA_DIR = os.getenv("APP_DATA_DIR", "/tmp" if IS_VERCEL else BASE_DIR)
+os.makedirs(DATA_DIR, exist_ok=True)
+DATABASE = os.path.join(DATA_DIR, "audit.db")
 DEFAULT_ADMIN_NAME = "admin"
 DEFAULT_ADMIN_PHONE = "9111080628"
 DEFAULT_ADMIN_PASSWORD = "1234"
@@ -1105,7 +1108,7 @@ def admin_audit_export(audit_id):
     ).fetchall()
 
     df = pd.DataFrame([dict(r) for r in rows])
-    temp_path = os.path.join(BASE_DIR, f"audit_{audit_id}_results.xlsx")
+    temp_path = os.path.join(DATA_DIR, f"audit_{audit_id}_results.xlsx")
     df.to_excel(temp_path, index=False)
 
     return send_file(temp_path, as_attachment=True, download_name=f"audit_{audit_id}_results.xlsx")
