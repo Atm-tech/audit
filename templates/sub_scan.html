@@ -11,8 +11,8 @@
     <button id="stopCameraBtn" type="button" class="btn btn-outline-secondary btn-sm" disabled>Stop</button>
     <span id="scannerStatus" class="small-muted">Camera scanner is off.</span>
   </div>
-  <div id="scannerBox" class="border rounded" style="max-width: 540px; min-height: 280px;"></div>
-  <div class="small-muted mt-2">Keep barcode centered and steady. Scanner fills barcode automatically.</div>
+  <div id="scannerBox" class="border rounded"></div>
+  <div class="small-muted mt-2">Auto mode: each detection saves +1. Manual mode: fill textbox and edit qty.</div>
 </div>
 {% endif %}
 <div class="card p-3 mb-3">
@@ -54,9 +54,17 @@
 </div>
 {% if not assignment['is_frozen'] and assignment['status'] != 'ended' %}
 <style>
-  #scannerBox video {
+  #scannerBox {
+    max-width: 540px;
+    height: 260px;
+    overflow: hidden;
+    position: relative;
+    background: #111;
+  }
+  #scannerBox video,
+  #scannerBox canvas {
     width: 100% !important;
-    max-height: 320px !important;
+    height: 100% !important;
     object-fit: cover;
     border-radius: 8px;
   }
@@ -66,7 +74,6 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.7.7/dist/quagga.min.js"></script>
 <script>
   (() => {
     const scanForm = document.getElementById("scanForm");
@@ -77,12 +84,11 @@
     const stopBtn = document.getElementById("stopCameraBtn");
     const statusEl = document.getElementById("scannerStatus");
     const scannerId = "scannerBox";
-    let scanner = null; // html5-qrcode instance
-    let quaggaActive = false;
+
+    let scanner = null;
     let isRunning = false;
     let lastScanned = "";
     let lastScannedAt = 0;
-    let startEpoch = 0;
     let submitInFlight = false;
 
     function setStatus(msg) {
@@ -100,29 +106,9 @@
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
-        setTimeout(() => {
-          osc.stop();
-          ctx.close();
-        }, 80);
+        setTimeout(() => { osc.stop(); ctx.close(); }, 80);
       } catch (err) {}
       if (navigator.vibrate) navigator.vibrate(80);
-    }
-
-    function handleDetectedText(decodedText) {
-      const text = (decodedText || "").trim();
-      const now = Date.now();
-      if (!text) return;
-      if (text === lastScanned && now - lastScannedAt < 2000) return;
-      lastScanned = text;
-      lastScannedAt = now;
-      if (manualMode.checked) {
-        barcodeInput.value = text;
-        beep();
-        setStatus("Barcode captured (manual mode). Edit qty and tap Save Scan.");
-        barcodeInput.focus();
-      } else {
-        submitAutoScan(text);
-      }
     }
 
     function updateScannedCountInTable(barcode, delta) {
@@ -175,79 +161,73 @@
       }
     }
 
-    async function getRearCameraId() {
-      if (!window.Html5Qrcode) {
-        setStatus("Scanner library failed to load.");
-        return null;
+    function handleDetected(decodedText) {
+      const text = (decodedText || "").trim();
+      const now = Date.now();
+      if (!text) return;
+      if (text === lastScanned && now - lastScannedAt < 2000) return;
+      lastScanned = text;
+      lastScannedAt = now;
+
+      if (manualMode.checked) {
+        barcodeInput.value = text;
+        beep();
+        setStatus("Barcode captured (manual). Edit qty and Save.");
+        barcodeInput.focus();
+      } else {
+        submitAutoScan(text);
       }
-      let cameras = [];
-      try {
-        cameras = await Html5Qrcode.getCameras();
-      } catch (err) {
-        setStatus("Camera access denied. Allow permission and reload.");
-        return null;
-      }
-      if (!cameras || cameras.length === 0) {
-        setStatus("No camera found on this device.");
-        return null;
-      }
-      const rearCam =
-        cameras.find((d) => (d.label || "").toLowerCase().includes("back")) ||
-        cameras[0];
-      return rearCam.id;
     }
 
     async function startScanner() {
       if (isRunning) return;
-      const selectedId = await getRearCameraId();
-      if (!selectedId) return;
-      scanner = new Html5Qrcode(scannerId);
-      startEpoch = Date.now();
+      if (!window.Html5Qrcode) {
+        setStatus("Scanner library failed to load.");
+        return;
+      }
 
-      const onDetected = (decodedText) => handleDetectedText(decodedText);
+      let devices;
+      try {
+        devices = await Html5Qrcode.getCameras();
+      } catch (err) {
+        setStatus("Camera access denied. Allow permission and reload.");
+        return;
+      }
+      if (!devices || devices.length === 0) {
+        setStatus("No camera found on this device.");
+        return;
+      }
+
+      const rearCam = devices.find(d => (d.label || "").toLowerCase().includes("back")) || devices[0];
+      const supported = window.Html5QrcodeSupportedFormats || {};
+      const formats = [
+        supported.CODE_128,
+        supported.EAN_13,
+        supported.EAN_8,
+        supported.UPC_A,
+        supported.UPC_E
+      ].filter(Boolean);
+
+      scanner = new Html5Qrcode(scannerId, formats.length ? { formatsToSupport: formats } : {});
 
       try {
-        // iPhone-friendly: start with full-frame scanning (no narrow qrbox overlay).
         await scanner.start(
-          { deviceId: { exact: selectedId } },
-          {
-            fps: 8,
-            aspectRatio: 1.777,
-            disableFlip: true,
-            rememberLastUsedCamera: true,
-            experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-          },
-          onDetected,
+          { deviceId: { exact: rearCam.id } },
+          { fps: 10, qrbox: { width: 300, height: 100 } },
+          handleDetected,
           () => {}
         );
       } catch (err) {
-        // Fallback to environment-facing if deviceId exact fails on some mobiles.
         try {
           await scanner.start(
             { facingMode: "environment" },
-            {
-              fps: 8,
-              aspectRatio: 1.777,
-              disableFlip: true,
-              rememberLastUsedCamera: true,
-              experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-            },
-            onDetected,
+            { fps: 10, qrbox: { width: 300, height: 100 } },
+            handleDetected,
             () => {}
           );
         } catch (err2) {
-          // Final fallback: full frame scanning for devices where narrow qrbox fails.
-          try {
-            await scanner.start(
-              { facingMode: "environment" },
-              { fps: 8 },
-              onDetected,
-              () => {}
-            );
-          } catch (err3) {
-            setStatus("Scanner failed to start. Allow camera access and retry.");
-            return;
-          }
+          setStatus("Scanner failed to start.");
+          return;
         }
       }
 
@@ -255,95 +235,15 @@
       startBtn.disabled = true;
       stopBtn.disabled = false;
       setStatus("Camera scanner is running.");
-
-      // If nothing is detected for some time, auto-fallback to Quagga (1D barcode optimized).
-      setTimeout(async () => {
-        if (!isRunning) return;
-        if (lastScannedAt >= startEpoch) return;
-        setStatus("No detection yet. Switching to enhanced barcode mode...");
-        await switchToQuagga();
-      }, 7000);
-    }
-
-    async function switchToQuagga() {
-      if (!window.Quagga) {
-        setStatus("Enhanced scanner unavailable.");
-        return;
-      }
-      if (!isRunning) return;
-
-      try {
-        if (scanner) {
-          await scanner.stop();
-          await scanner.clear();
-          scanner = null;
-        }
-      } catch (err) {}
-
-      const target = document.getElementById(scannerId);
-      if (!target) return;
-      target.innerHTML = "";
-
-      Quagga.offDetected(onQuaggaDetected);
-      Quagga.onDetected(onQuaggaDetected);
-
-      Quagga.init(
-        {
-          inputStream: {
-            type: "LiveStream",
-            target: target,
-            constraints: {
-              facingMode: "environment"
-            }
-          },
-          locator: { patchSize: "medium", halfSample: true },
-          decoder: {
-            readers: [
-              "ean_reader",
-              "ean_8_reader",
-              "upc_reader",
-              "upc_e_reader",
-              "code_128_reader",
-              "code_39_reader",
-              "codabar_reader",
-              "i2of5_reader"
-            ]
-          },
-          locate: true
-        },
-        (err) => {
-          if (err) {
-            setStatus("Enhanced scanner failed to start.");
-            return;
-          }
-          quaggaActive = true;
-          Quagga.start();
-          setStatus("Enhanced barcode mode is running.");
-        }
-      );
-    }
-
-    function onQuaggaDetected(result) {
-      const code = result && result.codeResult ? result.codeResult.code : "";
-      handleDetectedText(code);
     }
 
     async function stopScanner() {
-      if (!isRunning) return;
+      if (!scanner || !isRunning) return;
       try {
-        if (scanner) {
-          await scanner.stop();
-          await scanner.clear();
-          scanner = null;
-        }
+        await scanner.stop();
+        await scanner.clear();
       } catch (err) {}
-      try {
-        if (window.Quagga && quaggaActive) {
-          Quagga.offDetected(onQuaggaDetected);
-          Quagga.stop();
-          quaggaActive = false;
-        }
-      } catch (err) {}
+      scanner = null;
       isRunning = false;
       startBtn.disabled = false;
       stopBtn.disabled = true;
@@ -356,6 +256,7 @@
     window.addEventListener("beforeunload", () => {
       if (scanner && isRunning) scanner.stop().catch(() => {});
     });
+
     applyModeState();
   })();
 </script>
