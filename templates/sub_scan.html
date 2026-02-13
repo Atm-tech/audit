@@ -12,7 +12,7 @@
     <span id="scannerStatus" class="small-muted">Camera scanner is off.</span>
   </div>
   <div id="scannerBox" class="border rounded"></div>
-  <div class="small-muted mt-2">Auto mode: each detection saves +1. Manual mode: fill textbox and edit qty.</div>
+  <div class="small-muted mt-2">Auto mode: each detection saves +1. Manual mode: fill textbox and edit qty. Tap scanner area to help camera focus.</div>
 </div>
 {% endif %}
 <div class="card p-3 mb-3">
@@ -61,6 +61,18 @@
     position: relative;
     background: #111;
   }
+  #focusDot {
+    position: absolute;
+    width: 44px;
+    height: 44px;
+    border: 2px solid #00d26a;
+    border-radius: 50%;
+    pointer-events: none;
+    display: none;
+    z-index: 20;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 10px rgba(0, 210, 106, 0.6);
+  }
   #scannerBox video,
   #scannerBox canvas {
     width: 100% !important;
@@ -84,15 +96,49 @@
     const stopBtn = document.getElementById("stopCameraBtn");
     const statusEl = document.getElementById("scannerStatus");
     const scannerId = "scannerBox";
+    const feedbackUrl = "{{ url_for('sub_scanner_feedback', assignment_id=assignment['id']) }}";
 
     let scanner = null;
     let isRunning = false;
     let lastScanned = "";
     let lastScannedAt = 0;
     let submitInFlight = false;
+    let noDetectTimer = null;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
+    }
+
+    async function sendFeedback(event, message = "", details = {}, includeSnapshot = false) {
+      const payload = { event, message, details };
+      if (includeSnapshot) {
+        const snap = captureSnapshot();
+        if (snap) payload.snapshot = snap;
+      }
+      try {
+        await fetch(feedbackUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      } catch (err) {}
+    }
+
+    function captureSnapshot() {
+      const video = document.querySelector("#scannerBox video");
+      if (!video || !video.videoWidth || !video.videoHeight) return null;
+      const cw = 320;
+      const ch = 180;
+      const canvas = document.createElement("canvas");
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext("2d");
+      try {
+        ctx.drawImage(video, 0, 0, cw, ch);
+        return canvas.toDataURL("image/jpeg", 0.6);
+      } catch (err) {
+        return null;
+      }
     }
 
     function beep() {
@@ -174,7 +220,9 @@
         beep();
         setStatus("Barcode captured (manual). Edit qty and Save.");
         barcodeInput.focus();
+        sendFeedback("detected_manual", "barcode-detected", { barcode: text, mode: "manual" });
       } else {
+        sendFeedback("detected_auto", "barcode-detected", { barcode: text, mode: "auto" });
         submitAutoScan(text);
       }
     }
@@ -183,6 +231,7 @@
       if (isRunning) return;
       if (!window.Html5Qrcode) {
         setStatus("Scanner library failed to load.");
+        sendFeedback("scanner_error", "library-load-failed");
         return;
       }
 
@@ -191,10 +240,12 @@
         devices = await Html5Qrcode.getCameras();
       } catch (err) {
         setStatus("Camera access denied. Allow permission and reload.");
+        sendFeedback("scanner_error", "camera-access-denied", { error: String(err) }, true);
         return;
       }
       if (!devices || devices.length === 0) {
         setStatus("No camera found on this device.");
+        sendFeedback("scanner_error", "no-camera-found");
         return;
       }
 
@@ -227,6 +278,7 @@
           );
         } catch (err2) {
           setStatus("Scanner failed to start.");
+          sendFeedback("scanner_error", "start-failed", { error: String(err2) }, true);
           return;
         }
       }
@@ -235,6 +287,15 @@
       startBtn.disabled = true;
       stopBtn.disabled = false;
       setStatus("Camera scanner is running.");
+      sendFeedback("scanner_started", "camera-started", { manual_mode: manualMode.checked, user_agent: navigator.userAgent });
+
+      clearTimeout(noDetectTimer);
+      noDetectTimer = setTimeout(() => {
+        if (!isRunning) return;
+        if (lastScannedAt > 0) return;
+        setStatus("No barcode detected yet. Try better light and distance.");
+        sendFeedback("no_detection", "no-barcode-detected-10s", {}, true);
+      }, 10000);
     }
 
     async function stopScanner() {
@@ -248,11 +309,28 @@
       startBtn.disabled = false;
       stopBtn.disabled = true;
       setStatus("Camera scanner is off.");
+      clearTimeout(noDetectTimer);
+      sendFeedback("scanner_stopped", "camera-stopped");
     }
 
     startBtn.addEventListener("click", startScanner);
     stopBtn.addEventListener("click", stopScanner);
     manualMode.addEventListener("change", applyModeState);
+    document.getElementById("scannerBox").addEventListener("click", (e) => {
+      const box = e.currentTarget;
+      let dot = document.getElementById("focusDot");
+      if (!dot) {
+        dot = document.createElement("div");
+        dot.id = "focusDot";
+        box.appendChild(dot);
+      }
+      const rect = box.getBoundingClientRect();
+      dot.style.left = `${e.clientX - rect.left}px`;
+      dot.style.top = `${e.clientY - rect.top}px`;
+      dot.style.display = "block";
+      setTimeout(() => { dot.style.display = "none"; }, 600);
+      sendFeedback("focus_tap", "user-tapped-focus", { x: Math.round(e.clientX - rect.left), y: Math.round(e.clientY - rect.top) });
+    });
     window.addEventListener("beforeunload", () => {
       if (scanner && isRunning) scanner.stop().catch(() => {});
     });

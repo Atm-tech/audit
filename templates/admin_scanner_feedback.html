@@ -1,0 +1,41 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Scanner Feedback</h4>
+  <a class="btn btn-outline-primary" href="{{ url_for('admin_audits') }}">Back</a>
+</div>
+<div class="card p-3">
+  <table class="table table-sm">
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Sub Auditor</th>
+        <th>Audit</th>
+        <th>Outlet/Dept</th>
+        <th>Event</th>
+        <th>Message</th>
+        <th>Details</th>
+        <th>Snapshot</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r['created_at'] }}</td>
+        <td>{{ r['sub_name'] }}</td>
+        <td>{{ r['audit_name'] }}</td>
+        <td>{{ r['outlet'] }} / {{ r['department'] }}</td>
+        <td>{{ r['event_type'] }}</td>
+        <td>{{ r['message'] }}</td>
+        <td><code style="font-size: 11px;">{{ r['details_json'] }}</code></td>
+        <td>
+          {% if r['snapshot_path'] %}
+            <a href="{{ url_for('static_scanner_snapshot', filename=r['snapshot_path']) }}" target="_blank">open</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,4 +1,6 @@
 ﻿import csv
+import json
+import base64
 import difflib
 import io
 import os
@@ -23,8 +25,9 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-IS_VERCEL = os.getenv("VERCEL") == "1"
-DATA_DIR = os.getenv("APP_DATA_DIR", "/tmp" if IS_VERCEL else BASE_DIR)
+# Local-only persistent SQLite storage.
+# If APP_DATA_DIR is set, it uses that fixed directory; otherwise it uses project folder.
+DATA_DIR = os.getenv("APP_DATA_DIR", BASE_DIR)
 os.makedirs(DATA_DIR, exist_ok=True)
 DATABASE = os.path.join(DATA_DIR, "audit.db")
 SEED_SQL_PATH = os.path.join(BASE_DIR, "seed_data.sql")
@@ -137,6 +140,19 @@ def init_db():
             scanned_at TEXT NOT NULL,
             FOREIGN KEY(audit_id) REFERENCES audits(id),
             FOREIGN KEY(scanned_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS scanner_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            message TEXT,
+            details_json TEXT,
+            snapshot_path TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(assignment_id) REFERENCES assignments(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
         );
         """
     )
@@ -321,6 +337,31 @@ def ensure_db_initialized():
 # ---------------------------
 def now_ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def save_feedback_snapshot(data_url):
+    if not data_url or not isinstance(data_url, str):
+        return None
+    if "," not in data_url:
+        return None
+    head, encoded = data_url.split(",", 1)
+    if "base64" not in head:
+        return None
+    try:
+        binary = base64.b64decode(encoded, validate=True)
+    except Exception:
+        return None
+    if len(binary) > 250_000:
+        return None
+    rel_dir = os.path.join("scanner_debug")
+    abs_dir = os.path.join(DATA_DIR, rel_dir)
+    os.makedirs(abs_dir, exist_ok=True)
+    fname = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
+    rel_path = os.path.join(rel_dir, fname)
+    abs_path = os.path.join(DATA_DIR, rel_path)
+    with open(abs_path, "wb") as f:
+        f.write(binary)
+    return rel_path
 
 
 def current_user():
@@ -869,6 +910,43 @@ def admin_audits():
         """
     ).fetchall()
     return render_template("admin_audits.html", audits=audits)
+
+
+@app.route("/admin/scanner-feedback")
+@login_required
+@role_required("admin")
+def admin_scanner_feedback():
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT
+            sf.*,
+            u.name AS sub_name,
+            a.department,
+            a.outlet,
+            au.name AS audit_name
+        FROM scanner_feedback sf
+        JOIN users u ON u.id = sf.user_id
+        JOIN assignments a ON a.id = sf.assignment_id
+        JOIN audits au ON au.id = a.audit_id
+        ORDER BY sf.id DESC
+        LIMIT 300
+        """
+    ).fetchall()
+    return render_template("admin_scanner_feedback.html", rows=rows)
+
+
+@app.route("/admin/scanner-feedback/snapshot/<path:filename>")
+@login_required
+@role_required("admin")
+def static_scanner_snapshot(filename):
+    safe_rel = os.path.normpath(filename).replace("\\", "/")
+    if safe_rel.startswith(".."):
+        return "invalid path", 400
+    abs_path = os.path.join(DATA_DIR, safe_rel)
+    if not os.path.exists(abs_path):
+        return "not found", 404
+    return send_file(abs_path)
 
 
 @app.route("/admin/audits/sample-csv")
@@ -1473,6 +1551,44 @@ def sub_scan(assignment_id):
     return render_template("sub_scan.html", assignment=assignment, rows=rows)
 
 
+@app.route("/sub/assignments/<int:assignment_id>/scanner-feedback", methods=["POST"])
+@login_required
+@role_required("sub_auditor")
+def sub_scanner_feedback(assignment_id):
+    user = current_user()
+    db = get_db()
+    assignment = db.execute(
+        "SELECT * FROM assignments WHERE id = ? AND sub_auditor_id = ?",
+        (assignment_id, user["id"]),
+    ).fetchone()
+    if not assignment:
+        return {"ok": False, "error": "assignment-not-found"}, 404
+
+    payload = request.get_json(silent=True) or {}
+    event_type = str(payload.get("event", "unknown")).strip()[:50] or "unknown"
+    message = str(payload.get("message", "")).strip()[:500]
+    details = payload.get("details", {})
+    snapshot = payload.get("snapshot")
+
+    details_json = ""
+    try:
+        details_json = json.dumps(details, ensure_ascii=True)[:5000]
+    except Exception:
+        details_json = ""
+
+    snapshot_path = save_feedback_snapshot(snapshot)
+    db.execute(
+        """
+        INSERT INTO scanner_feedback (
+            assignment_id, user_id, event_type, message, details_json, snapshot_path, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (assignment_id, user["id"], event_type, message, details_json, snapshot_path, now_ts()),
+    )
+    db.commit()
+    return {"ok": True}
+
+
 @app.route("/sub/assignments/<int:assignment_id>/freeze", methods=["POST"])
 @login_required
 @role_required("sub_auditor")
@@ -1505,6 +1621,8 @@ if __name__ == "__main__":
     with app.app_context():
         init_db()
     app.run(debug=True)
+
+
 
 
 
