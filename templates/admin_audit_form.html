@@ -19,7 +19,7 @@
       <label class="form-label">Tag Outlet</label>
       <select class="form-select" name="tag_outlet" required>
         <option value="">Select outlet</option>
-        <option value="{{ all_outlets_value }}" {% if audit and audit['tag_outlet'] == all_outlets_value %}selected{% endif %}>All Outlets</option>
+        <option value="{{ all_outlets_value }}" {% if (not audit and mode == 'create') or (audit and audit['tag_outlet'] == all_outlets_value) %}selected{% endif %}>All Outlets</option>
         {% for outlet in outlets %}
           <option value="{{ outlet }}" {% if audit and audit['tag_outlet'] == outlet %}selected{% endif %}>{{ outlet }}</option>
         {% endfor %}

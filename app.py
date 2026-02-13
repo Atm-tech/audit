@@ -106,7 +106,7 @@ def init_db():
             department TEXT NOT NULL,
             article_name TEXT NOT NULL,
             outlet TEXT NOT NULL,
-            UNIQUE(audit_id, barcode, department),
+            UNIQUE(audit_id, outlet, barcode, department),
             FOREIGN KEY(audit_id) REFERENCES audits(id)
         );
 
@@ -142,6 +142,7 @@ def init_db():
     )
     migrate_assignments_table(db)
     migrate_scans_table(db)
+    migrate_audit_items_table(db)
     bootstrap_seed_data_if_empty(db)
 
     # Backfill outlets from existing data for smooth upgrades.
@@ -250,6 +251,43 @@ def migrate_assignments_table(db):
         (ALL_OUTLETS_VALUE,),
     )
     db.execute("DROP TABLE assignments_old")
+
+
+def migrate_audit_items_table(db):
+    row = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_items'"
+    ).fetchone()
+    table_sql = (row["sql"] or "") if row else ""
+    if "UNIQUE(audit_id, outlet, barcode, department)" in table_sql:
+        return
+
+    db.executescript(
+        """
+        ALTER TABLE audit_items RENAME TO audit_items_old;
+
+        CREATE TABLE audit_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            audit_id INTEGER NOT NULL,
+            barcode TEXT NOT NULL,
+            expected_qty INTEGER NOT NULL,
+            department TEXT NOT NULL,
+            article_name TEXT NOT NULL,
+            outlet TEXT NOT NULL,
+            UNIQUE(audit_id, outlet, barcode, department),
+            FOREIGN KEY(audit_id) REFERENCES audits(id)
+        );
+        """
+    )
+    db.execute(
+        """
+        INSERT OR IGNORE INTO audit_items
+            (id, audit_id, barcode, expected_qty, department, article_name, outlet)
+        SELECT
+            id, audit_id, barcode, expected_qty, department, article_name, outlet
+        FROM audit_items_old
+        """
+    )
+    db.execute("DROP TABLE audit_items_old")
 
 
 def migrate_scans_table(db):
