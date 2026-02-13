@@ -53,6 +53,14 @@
   </table>
 </div>
 {% if not assignment['is_frozen'] and assignment['status'] != 'ended' %}
+<style>
+  #scannerBox video {
+    width: 100% !important;
+    max-height: 140px !important;
+    object-fit: cover;
+    border-radius: 8px;
+  }
+</style>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
   (() => {
@@ -63,9 +71,30 @@
     const scannerId = "scannerBox";
     let scanner = null;
     let isRunning = false;
+    let lastScanned = "";
+    let lastScannedAt = 0;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
+    }
+
+    function beep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = 1000;
+        gain.gain.value = 0.05;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        setTimeout(() => {
+          osc.stop();
+          ctx.close();
+        }, 80);
+      } catch (err) {}
+      if (navigator.vibrate) navigator.vibrate(80);
     }
 
     async function startScanner() {
@@ -74,25 +103,48 @@
         setStatus("Scanner library failed to load.");
         return;
       }
-      scanner = new Html5Qrcode(scannerId);
       try {
+        const devices = await Html5Qrcode.getCameras();
+        if (!devices || devices.length === 0) {
+          setStatus("No camera found on this device.");
+          return;
+        }
+        const rearCam =
+          devices.find((d) => (d.label || "").toLowerCase().includes("back")) ||
+          devices[0];
+        scanner = new Html5Qrcode(scannerId, {
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E
+          ]
+        });
         await scanner.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 280, height: 120 } },
+          { deviceId: { exact: rearCam.id } },
+          { fps: 10, qrbox: { width: 300, height: 50 } },
           (decodedText) => {
-            barcodeInput.value = decodedText.trim();
-            setStatus("Barcode captured.");
+            const text = (decodedText || "").trim();
+            const now = Date.now();
+            if (text === lastScanned && now - lastScannedAt < 2000) return;
+            lastScanned = text;
+            lastScannedAt = now;
+            barcodeInput.value = text;
+            beep();
+            setStatus("Barcode captured. Tap Save Scan.");
             barcodeInput.focus();
           },
           () => {}
         );
-        isRunning = true;
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        setStatus("Camera scanner is running.");
       } catch (err) {
-        setStatus("Could not start camera scanner.");
+        setStatus("Could not start camera scanner. Allow camera permission and use HTTPS.");
+        return;
       }
+      isRunning = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      setStatus("Camera scanner is running.");
     }
 
     async function stopScanner() {
