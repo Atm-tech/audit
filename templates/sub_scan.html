@@ -60,6 +60,10 @@
     object-fit: cover;
     border-radius: 8px;
   }
+  #scannerBox__scan_region,
+  #scannerBox__scan_region img {
+    display: none !important;
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.7.7/dist/quagga.min.js"></script>
@@ -203,10 +207,16 @@
       const onDetected = (decodedText) => handleDetectedText(decodedText);
 
       try {
-        // Match incentive-app style: fixed fps and narrow scan strip.
+        // iPhone-friendly: start with full-frame scanning (no narrow qrbox overlay).
         await scanner.start(
           { deviceId: { exact: selectedId } },
-          { fps: 10, qrbox: { width: 300, height: 50 } },
+          {
+            fps: 8,
+            aspectRatio: 1.777,
+            disableFlip: true,
+            rememberLastUsedCamera: true,
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+          },
           onDetected,
           () => {}
         );
@@ -215,7 +225,13 @@
         try {
           await scanner.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 300, height: 50 } },
+            {
+              fps: 8,
+              aspectRatio: 1.777,
+              disableFlip: true,
+              rememberLastUsedCamera: true,
+              experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+            },
             onDetected,
             () => {}
           );
