@@ -1185,6 +1185,45 @@ def outlet_audits():
     return render_template("outlet_audits.html", audits=audits)
 
 
+@app.route("/outlet/audits/<int:audit_id>/view")
+@login_required
+@role_required("outlet_head")
+def outlet_audit_view(audit_id):
+    user = current_user()
+    db = get_db()
+    audit = db.execute(
+        "SELECT * FROM audits WHERE id = ? AND (tag_outlet = ? OR tag_outlet = ?)",
+        (audit_id, user["outlet"], ALL_OUTLETS_VALUE),
+    ).fetchone()
+    if not audit:
+        flash("Audit not found for your outlet.", "danger")
+        return redirect(url_for("outlet_audits"))
+
+    rows = db.execute(
+        """
+        SELECT
+            ai.department,
+            ai.barcode,
+            ai.article_name,
+            ai.expected_qty,
+            COALESCE(SUM(s.scanned_qty), 0) AS scanned_qty,
+            (COALESCE(SUM(s.scanned_qty), 0) - ai.expected_qty) AS variance
+        FROM audit_items ai
+        LEFT JOIN scans s
+          ON s.audit_id = ai.audit_id
+         AND s.barcode = ai.barcode
+         AND s.outlet = ai.outlet
+         AND s.department = ai.department
+        WHERE ai.audit_id = ? AND ai.outlet = ?
+        GROUP BY ai.department, ai.barcode, ai.article_name, ai.expected_qty
+        ORDER BY ai.department, ai.article_name
+        """,
+        (audit_id, user["outlet"]),
+    ).fetchall()
+
+    return render_template("outlet_audit_view.html", audit=audit, rows=rows, outlet=user["outlet"])
+
+
 @app.route("/outlet/audits/<int:audit_id>/assign", methods=["GET", "POST"])
 @login_required
 @role_required("outlet_head")
@@ -1372,9 +1411,7 @@ def sub_scan(assignment_id):
         SELECT
             ai.barcode,
             ai.article_name,
-            ai.expected_qty,
-            COALESCE(SUM(s.scanned_qty), 0) AS scanned_qty,
-            (COALESCE(SUM(s.scanned_qty), 0) - ai.expected_qty) AS variance
+            COALESCE(SUM(s.scanned_qty), 0) AS scanned_qty
         FROM audit_items ai
         LEFT JOIN scans s
           ON s.audit_id = ai.audit_id
@@ -1382,7 +1419,7 @@ def sub_scan(assignment_id):
          AND s.outlet = ai.outlet
          AND s.department = ai.department
         WHERE ai.audit_id = ? AND ai.outlet = ? AND ai.department = ?
-        GROUP BY ai.barcode, ai.article_name, ai.expected_qty
+        GROUP BY ai.barcode, ai.article_name
         ORDER BY ai.article_name
         """,
         (assignment["audit_id"], assignment["outlet"], assignment["department"]),

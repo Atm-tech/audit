@@ -29,15 +29,13 @@
 </div>
 <div class="card p-3">
   <table class="table table-sm">
-    <thead><tr><th>Barcode</th><th>Article</th><th>Expected</th><th>Scanned</th><th>Variance</th></tr></thead>
+    <thead><tr><th>Barcode</th><th>Article</th><th>Scanned</th></tr></thead>
     <tbody>
       {% for r in rows %}
       <tr>
         <td>{{ r['barcode'] }}</td>
         <td>{{ r['article_name'] }}</td>
-        <td>{{ r['expected_qty'] }}</td>
         <td>{{ r['scanned_qty'] }}</td>
-        <td>{{ r['variance'] }}</td>
       </tr>
       {% endfor %}
     </tbody>

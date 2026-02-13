@@ -1,0 +1,24 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Outlet Audit View: {{ audit['name'] }} ({{ outlet }})</h4>
+  <a class="btn btn-outline-primary" href="{{ url_for('outlet_audits') }}">Back</a>
+</div>
+<div class="card p-3">
+  <table class="table table-sm">
+    <thead><tr><th>Department</th><th>Barcode</th><th>Article</th><th>Expected</th><th>Scanned</th><th>Variance</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r['department'] }}</td>
+        <td>{{ r['barcode'] }}</td>
+        <td>{{ r['article_name'] }}</td>
+        <td>{{ r['expected_qty'] }}</td>
+        <td>{{ r['scanned_qty'] }}</td>
+        <td>{{ r['variance'] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
