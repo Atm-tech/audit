@@ -138,15 +138,18 @@
       const max = Number(caps.zoom.max || 3);
       const step = Number(caps.zoom.step || 0.1);
       const current = Number(settings.zoom || min);
+      const target = min + (max - min) * 0.25;
+      const snapped = Math.max(min, Math.min(max, Math.round(target / step) * step));
 
       activeTrack = track;
       zoomSupported = true;
       zoomSlider.min = String(min);
       zoomSlider.max = String(max);
       zoomSlider.step = String(step);
-      zoomSlider.value = String(current);
+      zoomSlider.value = String(snapped);
       zoomWrap.style.display = "block";
-      sendFeedback("zoom_available", "camera-zoom-supported", { min, max, step, current });
+      sendFeedback("zoom_available", "camera-zoom-supported", { min, max, step, current, default_zoom: snapped });
+      await applyZoom(snapped);
     }
 
     async function applyZoom(value) {
