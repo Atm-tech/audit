@@ -16,16 +16,16 @@
 </div>
 {% endif %}
 <div class="card p-3 mb-3">
-  <form method="post" class="row g-2">
+  <form id="scanForm" method="post" class="row g-2">
     <div class="col-md-5">
       <input id="barcodeInput" class="form-control" name="barcode" placeholder="Scan or enter barcode" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %} required>
     </div>
     <div class="col-md-2">
-      <input class="form-control" type="number" min="1" name="qty" value="1" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>
+      <input id="qtyInput" class="form-control" type="number" min="1" name="qty" value="1" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>
     </div>
     <div class="col-md-2 d-flex align-items-center">
-      <input type="checkbox" class="form-check-input me-2" name="manual_entry" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>
-      <label class="form-check-label">Manual</label>
+      <input id="manualMode" type="checkbox" class="form-check-input me-2" name="manual_entry" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>
+      <label class="form-check-label">Manual Mode</label>
     </div>
     <div class="col-md-3">
       <button class="btn btn-success w-100" {% if assignment['is_frozen'] or assignment['status']=='ended' %}disabled{% endif %}>Save Scan</button>
@@ -65,7 +65,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.7.7/dist/quagga.min.js"></script>
 <script>
   (() => {
+    const scanForm = document.getElementById("scanForm");
     const barcodeInput = document.getElementById("barcodeInput");
+    const qtyInput = document.getElementById("qtyInput");
+    const manualMode = document.getElementById("manualMode");
     const startBtn = document.getElementById("startCameraBtn");
     const stopBtn = document.getElementById("stopCameraBtn");
     const statusEl = document.getElementById("scannerStatus");
@@ -76,6 +79,7 @@
     let lastScanned = "";
     let lastScannedAt = 0;
     let startEpoch = 0;
+    let submitInFlight = false;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
@@ -107,10 +111,64 @@
       if (text === lastScanned && now - lastScannedAt < 2000) return;
       lastScanned = text;
       lastScannedAt = now;
-      barcodeInput.value = text;
-      beep();
-      setStatus("Barcode captured. Tap Save Scan.");
-      barcodeInput.focus();
+      if (manualMode.checked) {
+        barcodeInput.value = text;
+        beep();
+        setStatus("Barcode captured (manual mode). Edit qty and tap Save Scan.");
+        barcodeInput.focus();
+      } else {
+        submitAutoScan(text);
+      }
+    }
+
+    function updateScannedCountInTable(barcode, delta) {
+      const rows = document.querySelectorAll("table tbody tr");
+      rows.forEach((row) => {
+        const tds = row.querySelectorAll("td");
+        if (tds.length < 3) return;
+        const code = (tds[0].textContent || "").trim();
+        if (code === barcode) {
+          const current = parseInt((tds[2].textContent || "0").trim(), 10) || 0;
+          tds[2].textContent = String(current + delta);
+        }
+      });
+    }
+
+    async function submitAutoScan(barcode) {
+      if (submitInFlight) return;
+      submitInFlight = true;
+      try {
+        const body = new URLSearchParams();
+        body.set("barcode", barcode);
+        body.set("qty", "1");
+        const resp = await fetch(window.location.pathname, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString()
+        });
+        if (!resp.ok) {
+          setStatus("Auto scan failed. Check barcode list.");
+          return;
+        }
+        beep();
+        updateScannedCountInTable(barcode, 1);
+        setStatus(`Scanned ${barcode} (+1)`);
+      } catch (err) {
+        setStatus("Auto scan failed. Network/server error.");
+      } finally {
+        submitInFlight = false;
+      }
+    }
+
+    function applyModeState() {
+      if (manualMode.checked) {
+        qtyInput.disabled = false;
+        setStatus("Manual mode on. Scanner fills textbox.");
+      } else {
+        qtyInput.value = "1";
+        qtyInput.disabled = true;
+        setStatus("Auto mode on. Each scan saves +1.");
+      }
     }
 
     async function getRearCameraId() {
@@ -278,9 +336,11 @@
 
     startBtn.addEventListener("click", startScanner);
     stopBtn.addEventListener("click", stopScanner);
+    manualMode.addEventListener("change", applyModeState);
     window.addEventListener("beforeunload", () => {
       if (scanner && isRunning) scanner.stop().catch(() => {});
     });
+    applyModeState();
   })();
 </script>
 {% endif %}
