@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Audit Analytics: {{ audit['name'] }}</h4>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-primary" href="{{ url_for('admin_audit_detail', audit_id=audit['id']) }}">Back</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-2"><div class="card p-3"><div class="small text-muted">Items</div><div class="h5 mb-0">{{ totals['items_count'] }}</div></div></div>
+  <div class="col-md-2"><div class="card p-3"><div class="small text-muted">Expected Qty</div><div class="h5 mb-0">{{ totals['expected_total'] }}</div></div></div>
+  <div class="col-md-2"><div class="card p-3"><div class="small text-muted">Scanned Qty</div><div class="h5 mb-0">{{ totals['scanned_total'] }}</div></div></div>
+  <div class="col-md-2"><div class="card p-3"><div class="small text-muted">Completion %</div><div class="h5 mb-0">{{ totals['completion_pct'] }}%</div></div></div>
+  <div class="col-md-2"><div class="card p-3"><div class="small text-muted">Perfect %</div><div class="h5 mb-0">{{ totals['perfect_pct'] }}%</div></div></div>
+  <div class="col-md-2"><div class="card p-3"><div class="small text-muted">|Variance|</div><div class="h5 mb-0">{{ totals['variance_abs'] }}</div></div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Assignments</div><div class="h5 mb-0">{{ assignment_summary['assignments_total'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Frozen Assignments</div><div class="h5 mb-0">{{ assignment_summary['assignments_frozen'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Freeze Completion %</div><div class="h5 mb-0">{{ assignment_summary['freeze_completion_pct'] }}%</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Assigned Sub Auditors</div><div class="h5 mb-0">{{ assignment_summary['sub_auditors_assigned'] }}</div></div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Scan Entries</div><div class="h5 mb-0">{{ scan_summary['scans_count'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Unique Barcodes</div><div class="h5 mb-0">{{ scan_summary['unique_barcodes'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Manual Entries</div><div class="h5 mb-0">{{ scan_summary['manual_entries'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Manual Entry %</div><div class="h5 mb-0">{{ scan_summary['manual_entry_pct'] }}%</div></div></div>
+</div>
+
+<div class="card p-3 mb-3">
+  <h5 class="mb-3">Outlet Wise</h5>
+  <table class="table table-sm mb-0">
+    <thead>
+      <tr><th>Outlet</th><th>Items</th><th>Expected</th><th>Scanned</th><th>Completion %</th><th>Perfect %</th><th>|Variance|</th></tr>
+    </thead>
+    <tbody>
+      {% for r in outlet_rows %}
+      <tr>
+        <td>{{ r['outlet'] }}</td>
+        <td>{{ r['items_count'] }}</td>
+        <td>{{ r['expected_total'] }}</td>
+        <td>{{ r['scanned_total'] }}</td>
+        <td>{{ r['completion_pct'] }}%</td>
+        <td>{{ r['perfect_pct'] }}%</td>
+        <td>{{ r['variance_abs'] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card p-3 mb-3">
+  <h5 class="mb-3">Department Wise</h5>
+  <table class="table table-sm mb-0">
+    <thead>
+      <tr><th>Department</th><th>Items</th><th>Expected</th><th>Scanned</th><th>Completion %</th><th>Perfect %</th><th>|Variance|</th></tr>
+    </thead>
+    <tbody>
+      {% for r in department_rows %}
+      <tr>
+        <td>{{ r['department'] }}</td>
+        <td>{{ r['items_count'] }}</td>
+        <td>{{ r['expected_total'] }}</td>
+        <td>{{ r['scanned_total'] }}</td>
+        <td>{{ r['completion_pct'] }}%</td>
+        <td>{{ r['perfect_pct'] }}%</td>
+        <td>{{ r['variance_abs'] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card p-3">
+  <h5 class="mb-3">Outlet + Department Wise</h5>
+  <table class="table table-sm mb-0">
+    <thead>
+      <tr><th>Outlet</th><th>Department</th><th>Items</th><th>Expected</th><th>Scanned</th><th>Completion %</th><th>Perfect %</th><th>|Variance|</th></tr>
+    </thead>
+    <tbody>
+      {% for r in outlet_department_rows %}
+      <tr>
+        <td>{{ r['outlet'] }}</td>
+        <td>{{ r['department'] }}</td>
+        <td>{{ r['items_count'] }}</td>
+        <td>{{ r['expected_total'] }}</td>
+        <td>{{ r['scanned_total'] }}</td>
+        <td>{{ r['completion_pct'] }}%</td>
+        <td>{{ r['perfect_pct'] }}%</td>
+        <td>{{ r['variance_abs'] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card p-3 mt-3">
+  <h5 class="mb-3">Sub Auditor Efficiency (This Audit)</h5>
+  <table class="table table-sm mb-0">
+    <thead>
+      <tr><th>Sub Auditor</th><th>Outlet</th><th>Assignments</th><th>Frozen</th><th>Completion %</th><th>Scans</th><th>Qty</th><th>Unique Barcodes</th><th>Active Minutes</th><th>Efficiency Score</th></tr>
+    </thead>
+    <tbody>
+      {% for r in sub_eff %}
+      <tr>
+        <td>{{ r['sub_name'] }}</td>
+        <td>{{ r['outlet'] }}</td>
+        <td>{{ r['assignments_total'] }}</td>
+        <td>{{ r['assignments_frozen'] }}</td>
+        <td>{{ r['completion_pct'] }}%</td>
+        <td>{{ r['scans_count'] }}</td>
+        <td>{{ r['scanned_qty_total'] }}</td>
+        <td>{{ r['unique_barcodes'] }}</td>
+        <td>{{ r['active_minutes'] }}</td>
+        <td><strong>{{ r['efficiency_score'] }}</strong></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

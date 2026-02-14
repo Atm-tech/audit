@@ -15,3 +15,57 @@
   color: #6c757d;
   font-size: 0.9rem;
 }
+
+/* Mobile-only responsiveness; desktop layout remains unchanged. */
+@media (max-width: 768px) {
+  .container {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .navbar .container {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .navbar-brand {
+    font-size: 1rem;
+  }
+
+  .d-flex.justify-content-between.align-items-center.mb-3 {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px;
+  }
+
+  .d-flex.justify-content-between.align-items-center.mb-3 > .d-flex {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .card {
+    padding: 12px !important;
+  }
+
+  .btn {
+    font-size: 0.875rem;
+    padding: 0.4rem 0.65rem;
+  }
+
+  .table {
+    font-size: 0.84rem;
+  }
+
+  .card > .table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    margin-bottom: 0;
+  }
+
+  .progress {
+    height: 0.7rem;
+  }
+}

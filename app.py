@@ -1498,6 +1498,265 @@ def admin_audit_detail(audit_id):
     )
 
 
+@app.route("/admin/audits/<int:audit_id>/analytics")
+@login_required
+@role_required("admin")
+def admin_audit_analytics(audit_id):
+    db = get_db()
+    audit = db.execute("SELECT * FROM audits WHERE id = ?", (audit_id,)).fetchone()
+    if not audit:
+        flash("Audit not found.", "danger")
+        return redirect(url_for("admin_audits"))
+
+    item_metrics_sql = """
+        WITH item_metrics AS (
+            SELECT
+                ai.outlet,
+                ai.department,
+                ai.barcode,
+                ai.expected_qty,
+                COALESCE(SUM(s.scanned_qty), 0) AS scanned_qty,
+                (COALESCE(SUM(s.scanned_qty), 0) - ai.expected_qty) AS variance
+            FROM audit_items ai
+            LEFT JOIN scans s
+              ON s.audit_id = ai.audit_id
+             AND s.barcode = ai.barcode
+             AND s.outlet = ai.outlet
+             AND s.department = ai.department
+            WHERE ai.audit_id = ?
+            GROUP BY ai.outlet, ai.department, ai.barcode, ai.expected_qty
+        )
+    """
+
+    totals_row = db.execute(
+        item_metrics_sql
+        + """
+        SELECT
+            COUNT(*) AS items_count,
+            COALESCE(SUM(expected_qty), 0) AS expected_total,
+            COALESCE(SUM(scanned_qty), 0) AS scanned_total,
+            COALESCE(SUM(ABS(variance)), 0) AS variance_abs,
+            COALESCE(SUM(CASE WHEN variance = 0 THEN 1 ELSE 0 END), 0) AS perfect_items
+        FROM item_metrics
+        """,
+        (audit_id,),
+    ).fetchone()
+
+    totals = {
+        "items_count": int(totals_row["items_count"] or 0),
+        "expected_total": int(totals_row["expected_total"] or 0),
+        "scanned_total": int(totals_row["scanned_total"] or 0),
+        "variance_abs": int(totals_row["variance_abs"] or 0),
+        "perfect_items": int(totals_row["perfect_items"] or 0),
+    }
+    totals["completion_pct"] = (
+        round((totals["scanned_total"] / totals["expected_total"]) * 100, 2)
+        if totals["expected_total"]
+        else 0
+    )
+    totals["perfect_pct"] = (
+        round((totals["perfect_items"] / totals["items_count"]) * 100, 2)
+        if totals["items_count"]
+        else 0
+    )
+    assignments_row = db.execute(
+        """
+        SELECT
+            COUNT(*) AS assignments_total,
+            COALESCE(SUM(CASE WHEN is_frozen = 1 THEN 1 ELSE 0 END), 0) AS assignments_frozen,
+            COUNT(DISTINCT sub_auditor_id) AS sub_auditors_assigned
+        FROM assignments
+        WHERE audit_id = ?
+        """,
+        (audit_id,),
+    ).fetchone()
+    assignment_summary = {
+        "assignments_total": int(assignments_row["assignments_total"] or 0),
+        "assignments_frozen": int(assignments_row["assignments_frozen"] or 0),
+        "sub_auditors_assigned": int(assignments_row["sub_auditors_assigned"] or 0),
+    }
+    assignment_summary["freeze_completion_pct"] = (
+        round(
+            (assignment_summary["assignments_frozen"] / assignment_summary["assignments_total"]) * 100,
+            2,
+        )
+        if assignment_summary["assignments_total"]
+        else 0
+    )
+
+    scan_row = db.execute(
+        """
+        SELECT
+            COUNT(*) AS scans_count,
+            COALESCE(SUM(scanned_qty), 0) AS scanned_qty_total,
+            COUNT(DISTINCT barcode) AS unique_barcodes,
+            COALESCE(SUM(CASE WHEN manual_entry = 1 THEN 1 ELSE 0 END), 0) AS manual_entries
+        FROM scans
+        WHERE audit_id = ?
+        """,
+        (audit_id,),
+    ).fetchone()
+    scan_summary = {
+        "scans_count": int(scan_row["scans_count"] or 0),
+        "scanned_qty_total": int(scan_row["scanned_qty_total"] or 0),
+        "unique_barcodes": int(scan_row["unique_barcodes"] or 0),
+        "manual_entries": int(scan_row["manual_entries"] or 0),
+    }
+    scan_summary["manual_entry_pct"] = (
+        round((scan_summary["manual_entries"] / scan_summary["scans_count"]) * 100, 2)
+        if scan_summary["scans_count"]
+        else 0
+    )
+
+    def with_percentages(rows):
+        result = []
+        for row in rows:
+            expected_total = int(row["expected_total"] or 0)
+            scanned_total = int(row["scanned_total"] or 0)
+            items_count = int(row["items_count"] or 0)
+            perfect_items = int(row["perfect_items"] or 0)
+            result.append(
+                {
+                    **dict(row),
+                    "items_count": items_count,
+                    "expected_total": expected_total,
+                    "scanned_total": scanned_total,
+                    "variance_abs": int(row["variance_abs"] or 0),
+                    "completion_pct": round((scanned_total / expected_total) * 100, 2)
+                    if expected_total
+                    else 0,
+                    "perfect_pct": round((perfect_items / items_count) * 100, 2)
+                    if items_count
+                    else 0,
+                }
+            )
+        return result
+
+    outlet_rows = db.execute(
+        item_metrics_sql
+        + """
+        SELECT
+            outlet,
+            COUNT(*) AS items_count,
+            COALESCE(SUM(expected_qty), 0) AS expected_total,
+            COALESCE(SUM(scanned_qty), 0) AS scanned_total,
+            COALESCE(SUM(ABS(variance)), 0) AS variance_abs,
+            COALESCE(SUM(CASE WHEN variance = 0 THEN 1 ELSE 0 END), 0) AS perfect_items
+        FROM item_metrics
+        GROUP BY outlet
+        ORDER BY variance_abs DESC, expected_total DESC
+        """,
+        (audit_id,),
+    ).fetchall()
+
+    department_rows = db.execute(
+        item_metrics_sql
+        + """
+        SELECT
+            department,
+            COUNT(*) AS items_count,
+            COALESCE(SUM(expected_qty), 0) AS expected_total,
+            COALESCE(SUM(scanned_qty), 0) AS scanned_total,
+            COALESCE(SUM(ABS(variance)), 0) AS variance_abs,
+            COALESCE(SUM(CASE WHEN variance = 0 THEN 1 ELSE 0 END), 0) AS perfect_items
+        FROM item_metrics
+        GROUP BY department
+        ORDER BY variance_abs DESC, expected_total DESC
+        """,
+        (audit_id,),
+    ).fetchall()
+
+    outlet_department_rows = db.execute(
+        item_metrics_sql
+        + """
+        SELECT
+            outlet,
+            department,
+            COUNT(*) AS items_count,
+            COALESCE(SUM(expected_qty), 0) AS expected_total,
+            COALESCE(SUM(scanned_qty), 0) AS scanned_total,
+            COALESCE(SUM(ABS(variance)), 0) AS variance_abs,
+            COALESCE(SUM(CASE WHEN variance = 0 THEN 1 ELSE 0 END), 0) AS perfect_items
+        FROM item_metrics
+        GROUP BY outlet, department
+        ORDER BY variance_abs DESC, expected_total DESC
+        """,
+        (audit_id,),
+    ).fetchall()
+
+    sub_eff_rows = db.execute(
+        """
+        SELECT
+            a.sub_auditor_id,
+            u.name AS sub_name,
+            a.outlet,
+            COUNT(DISTINCT a.id) AS assignments_total,
+            COALESCE(SUM(CASE WHEN a.is_frozen = 1 THEN 1 ELSE 0 END), 0) AS assignments_frozen,
+            COUNT(s.id) AS scans_count,
+            COALESCE(SUM(s.scanned_qty), 0) AS scanned_qty_total,
+            COUNT(DISTINCT s.barcode) AS unique_barcodes,
+            MIN(s.scanned_at) AS first_scan_at,
+            MAX(s.scanned_at) AS last_scan_at,
+            (julianday(MAX(s.scanned_at)) - julianday(MIN(s.scanned_at))) * 24.0 * 60.0 AS active_minutes
+        FROM assignments a
+        JOIN users u ON u.id = a.sub_auditor_id
+        LEFT JOIN scans s
+          ON s.audit_id = a.audit_id
+         AND s.outlet = a.outlet
+         AND s.department = a.department
+         AND s.scanned_by = a.sub_auditor_id
+        WHERE a.audit_id = ?
+        GROUP BY a.sub_auditor_id, u.name, a.outlet
+        ORDER BY scanned_qty_total DESC, scans_count DESC, assignments_total DESC
+        """,
+        (audit_id,),
+    ).fetchall()
+    max_scanned_qty = max([int(r["scanned_qty_total"] or 0) for r in sub_eff_rows], default=0)
+    max_assignments = max([int(r["assignments_total"] or 0) for r in sub_eff_rows], default=0)
+    sub_eff = []
+    for r in sub_eff_rows:
+        assignments_total = int(r["assignments_total"] or 0)
+        assignments_frozen = int(r["assignments_frozen"] or 0)
+        scans_count = int(r["scans_count"] or 0)
+        scanned_qty_total = int(r["scanned_qty_total"] or 0)
+        unique_barcodes = int(r["unique_barcodes"] or 0)
+        completion_rate = (assignments_frozen / assignments_total) if assignments_total else 0
+        throughput_norm = (scanned_qty_total / max_scanned_qty) if max_scanned_qty else 0
+        coverage_norm = (assignments_total / max_assignments) if max_assignments else 0
+        diversity = min(1.0, (unique_barcodes / scans_count)) if scans_count else 0
+        active_minutes = round(float(r["active_minutes"] or 0), 2) if r["active_minutes"] else 0
+        efficiency_score = round(
+            (throughput_norm * 35) + (coverage_norm * 20) + (completion_rate * 25) + (diversity * 20), 2
+        )
+        sub_eff.append(
+            {
+                "sub_name": r["sub_name"],
+                "outlet": r["outlet"],
+                "assignments_total": assignments_total,
+                "assignments_frozen": assignments_frozen,
+                "completion_pct": round(completion_rate * 100, 2),
+                "scans_count": scans_count,
+                "scanned_qty_total": scanned_qty_total,
+                "unique_barcodes": unique_barcodes,
+                "active_minutes": active_minutes,
+                "efficiency_score": efficiency_score,
+            }
+        )
+    sub_eff.sort(key=lambda x: (x["efficiency_score"], x["scanned_qty_total"]), reverse=True)
+
+    return render_template(
+        "admin_audit_analytics.html",
+        audit=audit,
+        totals=totals,
+        assignment_summary=assignment_summary,
+        scan_summary=scan_summary,
+        outlet_rows=with_percentages(outlet_rows),
+        department_rows=with_percentages(department_rows),
+        outlet_department_rows=with_percentages(outlet_department_rows),
+        sub_eff=sub_eff,
+    )
+
+
 @app.route("/admin/audits/<int:audit_id>/edit", methods=["GET", "POST"])
 @login_required
 @role_required("admin")
@@ -1880,6 +2139,17 @@ def outlet_assign(audit_id):
         if not department or not sub_auditor_id:
             flash("Select department and sub-auditor.", "danger")
         else:
+            existing_assignment = db.execute(
+                """
+                SELECT id, is_frozen
+                FROM assignments
+                WHERE audit_id = ? AND outlet = ? AND department = ?
+                """,
+                (audit_id, user["outlet"], department),
+            ).fetchone()
+            if existing_assignment and int(existing_assignment["is_frozen"] or 0) == 1:
+                flash("This department is frozen. Only admin can unfreeze it.", "danger")
+                return redirect(url_for("outlet_assign", audit_id=audit_id))
             try:
                 db.execute(
                     """
@@ -1888,9 +2158,7 @@ def outlet_assign(audit_id):
                     ON CONFLICT(audit_id, outlet, department)
                     DO UPDATE SET
                         sub_auditor_id = excluded.sub_auditor_id,
-                        assigned_by = excluded.assigned_by,
-                        is_frozen = 0,
-                        frozen_at = NULL
+                        assigned_by = excluded.assigned_by
                     """,
                     (
                         audit_id,
@@ -1934,17 +2202,130 @@ def outlet_assign(audit_id):
 def sub_assignments():
     user = current_user()
     db = get_db()
-    assignments = db.execute(
+    assignment_rows = db.execute(
         """
-        SELECT a.*, au.name AS audit_name, au.tag_outlet, au.status
+        SELECT
+            a.*,
+            au.name AS audit_name,
+            au.tag_outlet,
+            au.status,
+            COALESCE(ai.expected_total, 0) AS expected_total,
+            COALESCE(ss.scanned_total, 0) AS scanned_total,
+            COALESCE(ss.scans_count, 0) AS scans_count,
+            COALESCE(ss.unique_barcodes, 0) AS unique_barcodes
         FROM assignments a
         JOIN audits au ON au.id = a.audit_id
+        LEFT JOIN (
+            SELECT
+                audit_id,
+                outlet,
+                department,
+                SUM(expected_qty) AS expected_total
+            FROM audit_items
+            GROUP BY audit_id, outlet, department
+        ) ai
+          ON ai.audit_id = a.audit_id
+         AND ai.outlet = a.outlet
+         AND ai.department = a.department
+        LEFT JOIN (
+            SELECT
+                audit_id,
+                outlet,
+                department,
+                scanned_by,
+                SUM(scanned_qty) AS scanned_total,
+                COUNT(*) AS scans_count,
+                COUNT(DISTINCT barcode) AS unique_barcodes
+            FROM scans
+            GROUP BY audit_id, outlet, department, scanned_by
+        ) ss
+          ON ss.audit_id = a.audit_id
+         AND ss.outlet = a.outlet
+         AND ss.department = a.department
+         AND ss.scanned_by = a.sub_auditor_id
         WHERE a.sub_auditor_id = ?
         ORDER BY a.id DESC
         """,
         (user["id"],),
     ).fetchall()
-    return render_template("sub_assignments.html", assignments=assignments)
+
+    assignments = []
+    for row in assignment_rows:
+        expected_total = int(row["expected_total"] or 0)
+        scanned_total = int(row["scanned_total"] or 0)
+        raw_progress_pct = round((scanned_total / expected_total) * 100, 2) if expected_total else 0
+        progress_pct = min(100, raw_progress_pct)
+        efficiency_score = round(
+            ((min(1.0, scanned_total / expected_total) if expected_total else 0) * 85)
+            + (15 if row["is_frozen"] else 0),
+            2,
+        )
+        if efficiency_score >= 80:
+            efficiency_class = "success"
+        elif efficiency_score >= 50:
+            efficiency_class = "warning"
+        else:
+            efficiency_class = "danger"
+        assignments.append(
+            {
+                **dict(row),
+                "expected_total": expected_total,
+                "scanned_total": scanned_total,
+                "raw_progress_pct": raw_progress_pct,
+                "progress_pct": progress_pct,
+                "efficiency_score": efficiency_score,
+                "efficiency_class": efficiency_class,
+            }
+        )
+
+    departments_total = len(assignments)
+    departments_scanned = sum(1 for a in assignments if a["scanned_total"] > 0)
+    departments_completed = sum(
+        1
+        for a in assignments
+        if a["is_frozen"] or (a["expected_total"] > 0 and a["scanned_total"] >= a["expected_total"])
+    )
+    assignments_frozen = sum(1 for a in assignments if a["is_frozen"])
+    expected_total = sum(a["expected_total"] for a in assignments)
+    scanned_total = sum(a["scanned_total"] for a in assignments)
+    scans_count = sum(int(a["scans_count"] or 0) for a in assignments)
+    unique_barcodes = sum(int(a["unique_barcodes"] or 0) for a in assignments)
+
+    dept_completion_pct = round((departments_completed / departments_total) * 100, 2) if departments_total else 0
+    qty_completion_pct = round((scanned_total / expected_total) * 100, 2) if expected_total else 0
+    freeze_completion_pct = round((assignments_frozen / departments_total) * 100, 2) if departments_total else 0
+    scan_coverage_pct = round((departments_scanned / departments_total) * 100, 2) if departments_total else 0
+    efficiency_score = round(
+        (min(100, qty_completion_pct) * 0.45)
+        + (dept_completion_pct * 0.30)
+        + (scan_coverage_pct * 0.15)
+        + (freeze_completion_pct * 0.10),
+        2,
+    )
+    if efficiency_score >= 80:
+        efficiency_class = "success"
+    elif efficiency_score >= 50:
+        efficiency_class = "warning"
+    else:
+        efficiency_class = "danger"
+
+    overview = {
+        "departments_total": departments_total,
+        "departments_scanned": departments_scanned,
+        "departments_completed": departments_completed,
+        "assignments_frozen": assignments_frozen,
+        "expected_total": expected_total,
+        "scanned_total": scanned_total,
+        "scans_count": scans_count,
+        "unique_barcodes": unique_barcodes,
+        "dept_completion_pct": dept_completion_pct,
+        "qty_completion_pct": qty_completion_pct,
+        "freeze_completion_pct": freeze_completion_pct,
+        "scan_coverage_pct": scan_coverage_pct,
+        "efficiency_score": efficiency_score,
+        "efficiency_class": efficiency_class,
+    }
+    return render_template("sub_assignments.html", assignments=assignments, overview=overview)
 
 
 @app.route("/sub/assignments/<int:assignment_id>/scan", methods=["GET", "POST"])
@@ -2087,11 +2468,22 @@ def sub_freeze(assignment_id):
     user = current_user()
     db = get_db()
     assignment = db.execute(
-        "SELECT * FROM assignments WHERE id = ? AND sub_auditor_id = ?",
+        """
+        SELECT a.*, au.status
+        FROM assignments a
+        JOIN audits au ON au.id = a.audit_id
+        WHERE a.id = ? AND a.sub_auditor_id = ?
+        """,
         (assignment_id, user["id"]),
     ).fetchone()
     if not assignment:
         flash("Assignment not found.", "danger")
+        return redirect(url_for("sub_assignments"))
+    if assignment["status"] == "ended":
+        flash("Audit is ended. Department cannot be frozen now.", "danger")
+        return redirect(url_for("sub_assignments"))
+    if assignment["is_frozen"]:
+        flash("This department is already frozen. Only admin can unfreeze it.", "info")
         return redirect(url_for("sub_assignments"))
 
     db.execute(

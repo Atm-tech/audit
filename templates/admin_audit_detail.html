@@ -16,6 +16,9 @@
       <div class="small-muted">Items: {{ items_count }}</div>
       <div class="small-muted">Scan entries: {{ scans_count }}</div>
       <div class="d-grid gap-2 mt-2">
+        {% if audit['status'] == 'active' %}
+        <a class="btn btn-sm btn-outline-dark" href="{{ url_for('admin_audit_analytics', audit_id=audit['id']) }}">Analyze</a>
+        {% endif %}
         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_audit_view', audit_id=audit['id']) }}">View Audit</a>
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_audit_edit', audit_id=audit['id']) }}">Edit</a>
         <a class="btn btn-sm btn-outline-success" href="{{ url_for('admin_audit_export', audit_id=audit['id']) }}">Download Excel</a>
