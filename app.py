@@ -2503,7 +2503,11 @@ def inject_user():
 if __name__ == "__main__":
     with app.app_context():
         init_db()
-    app.run(debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        debug=os.environ.get("FLASK_DEBUG", "0") == "1",
+    )
 
 
 
