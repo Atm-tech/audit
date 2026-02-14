@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "https://73ee-122-175-196-210.ngrok-free.app/$1"
+      "dest": "https://audit-xgon.onrender.com/$1"
     }
   ]
 }
