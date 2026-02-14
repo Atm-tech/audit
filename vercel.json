@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/api/proxy?path=$1"
+      "dest": "https://73ee-122-175-196-210.ngrok-free.app/$1"
     }
   ]
 }

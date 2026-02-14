@@ -108,6 +108,7 @@
     let isRunning = false;
     let lastScanned = "";
     let lastScannedAt = 0;
+    let scanCooldownUntil = 0;
     let submitInFlight = false;
     let noDetectTimer = null;
     let activeTrack = null;
@@ -261,9 +262,11 @@
       const text = (decodedText || "").trim();
       const now = Date.now();
       if (!text) return;
+      if (now < scanCooldownUntil) return;
       if (text === lastScanned && now - lastScannedAt < 2000) return;
       lastScanned = text;
       lastScannedAt = now;
+      scanCooldownUntil = now + 1000;
 
       if (manualMode.checked) {
         barcodeInput.value = text;
@@ -275,6 +278,9 @@
         sendFeedback("detected_auto", "barcode-detected", { barcode: text, mode: "auto" });
         submitAutoScan(text);
       }
+      setTimeout(() => {
+        lastScanned = "";
+      }, 1000);
     }
 
     async function startScanner() {
