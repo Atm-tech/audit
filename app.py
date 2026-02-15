@@ -5,6 +5,7 @@ import difflib
 import io
 import os
 import sqlite3
+import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
 from functools import wraps
@@ -25,9 +26,19 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-# Local-only persistent SQLite storage.
-# If APP_DATA_DIR is set, it uses that fixed directory; otherwise it uses project folder.
-DATA_DIR = os.getenv("APP_DATA_DIR", BASE_DIR)
+# Local-only SQLite storage.
+# If APP_DATA_DIR is set, it uses that directory.
+# On Vercel, fallback to a writable temp dir because project files are read-only.
+def resolve_data_dir():
+    env_dir = os.getenv("APP_DATA_DIR")
+    if env_dir:
+        return env_dir
+    if os.getenv("VERCEL") == "1":
+        return os.path.join(tempfile.gettempdir(), "audit-data")
+    return BASE_DIR
+
+
+DATA_DIR = resolve_data_dir()
 os.makedirs(DATA_DIR, exist_ok=True)
 DATABASE = os.path.join(DATA_DIR, "audit.db")
 HISTORY_DATABASE = os.path.join(DATA_DIR, "history.db")
