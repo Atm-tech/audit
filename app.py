@@ -6,7 +6,7 @@ import io
 import os
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 import pandas as pd
@@ -588,6 +588,171 @@ def role_required(*allowed_roles):
 def normalize_key(value):
     raw = str(value).strip().lower().replace("_", " ")
     return "".join(ch for ch in raw if ch.isalnum() or ch.isspace()).strip()
+
+
+EFFICIENCY_WINDOW_DAYS = 7
+
+
+def efficiency_window_start(days=EFFICIENCY_WINDOW_DAYS):
+    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def efficiency_band(score):
+    if score >= 80:
+        return "success"
+    if score >= 50:
+        return "warning"
+    return "danger"
+
+
+def build_sub_auditor_efficiency_rows(db, start_ts, days=EFFICIENCY_WINDOW_DAYS, outlet=None, user_id=None):
+    filters = ["u.role = 'sub_auditor'"]
+    params = [start_ts]
+    if outlet:
+        filters.append("u.outlet = ?")
+        params.append(outlet)
+    if user_id:
+        filters.append("u.id = ?")
+        params.append(user_id)
+
+    rows = db.execute(
+        f"""
+        SELECT
+            u.id AS sub_id,
+            u.name AS sub_name,
+            u.outlet AS outlet,
+            COALESCE(COUNT(s.id), 0) AS scans_count,
+            COALESCE(SUM(s.scanned_qty), 0) AS scanned_qty_total,
+            COALESCE(COUNT(DISTINCT s.barcode), 0) AS unique_barcodes,
+            COALESCE(COUNT(DISTINCT substr(s.scanned_at, 1, 10)), 0) AS scan_days,
+            MIN(s.scanned_at) AS first_scan_at,
+            MAX(s.scanned_at) AS last_scan_at,
+            (julianday(MAX(s.scanned_at)) - julianday(MIN(s.scanned_at))) * 24.0 * 60.0 AS active_minutes
+        FROM users u
+        LEFT JOIN scans s
+          ON s.scanned_by = u.id
+         AND s.scanned_at >= ?
+        WHERE {" AND ".join(filters)}
+        GROUP BY u.id, u.name, u.outlet
+        ORDER BY scanned_qty_total DESC, scans_count DESC
+        """,
+        tuple(params),
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        scans_count = int(row["scans_count"] or 0)
+        scanned_qty_total = int(row["scanned_qty_total"] or 0)
+        unique_barcodes = int(row["unique_barcodes"] or 0)
+        scan_days = int(row["scan_days"] or 0)
+        active_minutes = float(row["active_minutes"] or 0.0)
+        active_hours = max(active_minutes / 60.0, 1 / 60) if scans_count else 0
+        qty_per_hour = round(scanned_qty_total / active_hours, 2) if active_hours else 0
+        diversity = min(1.0, (unique_barcodes / scans_count)) if scans_count else 0
+        consistency = min(1.0, scan_days / days) if days else 0
+        throughput_norm = min(1.0, qty_per_hour / 120) if qty_per_hour else 0
+        volume_norm = min(1.0, scanned_qty_total / (days * 40)) if days else 0
+        efficiency_score = round(
+            (throughput_norm * 45) + (consistency * 25) + (diversity * 15) + (volume_norm * 15),
+            2,
+        )
+        result.append(
+            {
+                "sub_id": int(row["sub_id"]),
+                "sub_name": row["sub_name"],
+                "outlet": row["outlet"] or "",
+                "scans_count": scans_count,
+                "scanned_qty_total": scanned_qty_total,
+                "unique_barcodes": unique_barcodes,
+                "scan_days": scan_days,
+                "active_minutes": round(active_minutes, 2) if scans_count else 0,
+                "qty_per_hour": qty_per_hour,
+                "efficiency_score": efficiency_score,
+                "efficiency_class": efficiency_band(efficiency_score),
+            }
+        )
+
+    result.sort(key=lambda x: (x["efficiency_score"], x["scanned_qty_total"]), reverse=True)
+    return result
+
+
+def build_outlet_head_efficiency_rows(db, start_ts, days=EFFICIENCY_WINDOW_DAYS, user_id=None, outlet=None):
+    filters = ["u.role = 'outlet_head'"]
+    params = [start_ts, start_ts, start_ts, start_ts, start_ts, start_ts, start_ts]
+    if user_id:
+        filters.append("u.id = ?")
+        params.append(user_id)
+    if outlet:
+        filters.append("u.outlet = ?")
+        params.append(outlet)
+
+    rows = db.execute(
+        f"""
+        SELECT
+            u.id AS outlet_head_id,
+            u.name AS outlet_head_name,
+            u.outlet AS outlet,
+            COUNT(DISTINCT a.id) AS assignments_total,
+            COALESCE(COUNT(DISTINCT CASE WHEN a.frozen_at IS NOT NULL AND a.frozen_at >= ? THEN a.id END), 0) AS frozen_recent,
+            COALESCE(SUM(CASE WHEN s.scanned_at >= ? THEN 1 ELSE 0 END), 0) AS scans_count,
+            COALESCE(SUM(CASE WHEN s.scanned_at >= ? THEN s.scanned_qty ELSE 0 END), 0) AS scanned_qty_total,
+            COALESCE(COUNT(DISTINCT CASE WHEN s.scanned_at >= ? THEN s.barcode END), 0) AS unique_barcodes,
+            COALESCE(COUNT(DISTINCT CASE WHEN s.scanned_at >= ? THEN substr(s.scanned_at, 1, 10) END), 0) AS scan_days,
+            (julianday(MAX(CASE WHEN s.scanned_at >= ? THEN s.scanned_at END)) - julianday(MIN(CASE WHEN s.scanned_at >= ? THEN s.scanned_at END))) * 24.0 * 60.0 AS active_minutes
+        FROM users u
+        LEFT JOIN assignments a
+          ON a.assigned_by = u.id
+        LEFT JOIN scans s
+          ON s.audit_id = a.audit_id
+         AND s.outlet = a.outlet
+         AND s.department = a.department
+        WHERE {" AND ".join(filters)}
+        GROUP BY u.id, u.name, u.outlet
+        ORDER BY scanned_qty_total DESC, scans_count DESC
+        """,
+        tuple(params),
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        assignments_total = int(row["assignments_total"] or 0)
+        frozen_recent = int(row["frozen_recent"] or 0)
+        scans_count = int(row["scans_count"] or 0)
+        scanned_qty_total = int(row["scanned_qty_total"] or 0)
+        unique_barcodes = int(row["unique_barcodes"] or 0)
+        scan_days = int(row["scan_days"] or 0)
+        active_minutes = float(row["active_minutes"] or 0.0)
+        active_hours = max(active_minutes / 60.0, 1 / 60) if scans_count else 0
+        qty_per_hour = round(scanned_qty_total / active_hours, 2) if active_hours else 0
+        freeze_rate = (frozen_recent / assignments_total) if assignments_total else 0
+        consistency = min(1.0, scan_days / days) if days else 0
+        throughput_norm = min(1.0, qty_per_hour / 250) if qty_per_hour else 0
+        volume_norm = min(1.0, scanned_qty_total / (days * 120)) if days else 0
+        efficiency_score = round(
+            (throughput_norm * 40) + (freeze_rate * 30) + (consistency * 20) + (volume_norm * 10),
+            2,
+        )
+        result.append(
+            {
+                "outlet_head_id": int(row["outlet_head_id"]),
+                "outlet_head_name": row["outlet_head_name"],
+                "outlet": row["outlet"] or "",
+                "assignments_total": assignments_total,
+                "frozen_recent": frozen_recent,
+                "freeze_rate_pct": round(freeze_rate * 100, 2),
+                "scans_count": scans_count,
+                "scanned_qty_total": scanned_qty_total,
+                "unique_barcodes": unique_barcodes,
+                "scan_days": scan_days,
+                "active_minutes": round(active_minutes, 2) if scans_count else 0,
+                "qty_per_hour": qty_per_hour,
+                "efficiency_score": efficiency_score,
+                "efficiency_class": efficiency_band(efficiency_score),
+            }
+        )
+
+    result.sort(key=lambda x: (x["efficiency_score"], x["scanned_qty_total"]), reverse=True)
+    return result
 
 
 def canonical_column_name(name):
@@ -1194,57 +1359,17 @@ def admin_analytics():
         """
     ).fetchall()
 
-    sub_eff_rows = hconn.execute(
-        """
-        SELECT
-            sub_auditor_id,
-            sub_name,
-            outlet,
-            COUNT(*) AS assignments_total,
-            SUM(CASE WHEN frozen_at IS NOT NULL THEN 1 ELSE 0 END) AS assignments_frozen,
-            SUM(scans_count) AS scans_count,
-            SUM(scanned_qty_total) AS scanned_qty_total,
-            SUM(unique_barcodes) AS unique_barcodes,
-            MIN(first_scan_at) AS first_scan_at,
-            MAX(last_scan_at) AS last_scan_at,
-            (julianday(MAX(last_scan_at)) - julianday(MIN(first_scan_at))) * 24.0 * 60.0 AS active_minutes
-        FROM history_sub_metrics
-        GROUP BY sub_auditor_id, sub_name, outlet
-        ORDER BY scanned_qty_total DESC
-        LIMIT 250
-        """
-    ).fetchall()
-    max_scanned_qty = max([int(r["scanned_qty_total"] or 0) for r in sub_eff_rows], default=0)
-    max_assignments = max([int(r["assignments_total"] or 0) for r in sub_eff_rows], default=0)
-    sub_eff = []
-    for r in sub_eff_rows:
-        assignments_total = int(r["assignments_total"] or 0)
-        assignments_frozen = int(r["assignments_frozen"] or 0)
-        scans_count = int(r["scans_count"] or 0)
-        scanned_qty_total = int(r["scanned_qty_total"] or 0)
-        unique_barcodes = int(r["unique_barcodes"] or 0)
-        completion_rate = (assignments_frozen / assignments_total) if assignments_total else 0
-        throughput_norm = (scanned_qty_total / max_scanned_qty) if max_scanned_qty else 0
-        coverage_norm = (assignments_total / max_assignments) if max_assignments else 0
-        diversity = min(1.0, (unique_barcodes / scans_count)) if scans_count else 0
-        efficiency_score = round(
-            (throughput_norm * 35) + (coverage_norm * 20) + (completion_rate * 25) + (diversity * 20), 2
-        )
-        sub_eff.append(
-            {
-                "sub_name": r["sub_name"],
-                "outlet": r["outlet"],
-                "assignments_total": assignments_total,
-                "assignments_frozen": assignments_frozen,
-                "completion_pct": round(completion_rate * 100, 2),
-                "scans_count": scans_count,
-                "scanned_qty_total": scanned_qty_total,
-                "unique_barcodes": unique_barcodes,
-                "active_minutes": round(float(r["active_minutes"] or 0), 2) if r["active_minutes"] else 0,
-                "efficiency_score": efficiency_score,
-            }
-        )
-    sub_eff.sort(key=lambda x: (x["efficiency_score"], x["scanned_qty_total"]), reverse=True)
+    window_start = efficiency_window_start(EFFICIENCY_WINDOW_DAYS)
+    sub_eff = build_sub_auditor_efficiency_rows(
+        db=db,
+        start_ts=window_start,
+        days=EFFICIENCY_WINDOW_DAYS,
+    )
+    outlet_head_eff = build_outlet_head_efficiency_rows(
+        db=db,
+        start_ts=window_start,
+        days=EFFICIENCY_WINDOW_DAYS,
+    )
     hconn.close()
     return render_template(
         "admin_analytics.html",
@@ -1253,6 +1378,8 @@ def admin_analytics():
         department_perf=department_perf,
         trend_rows=trend_rows,
         sub_eff=sub_eff,
+        outlet_head_eff=outlet_head_eff,
+        efficiency_window_days=EFFICIENCY_WINDOW_DAYS,
     )
 
 
@@ -1952,6 +2079,7 @@ def outlet_audits():
 @role_required("outlet_head")
 def outlet_analytics():
     user = current_user()
+    db = get_db()
     outlet = user["outlet"]
     init_history_db()
     hconn = get_history_conn()
@@ -1998,56 +2126,20 @@ def outlet_analytics():
         """,
         (outlet,),
     ).fetchall()
-    sub_eff_rows = hconn.execute(
-        """
-        SELECT
-            sub_auditor_id,
-            sub_name,
-            COUNT(*) AS assignments_total,
-            SUM(CASE WHEN frozen_at IS NOT NULL THEN 1 ELSE 0 END) AS assignments_frozen,
-            SUM(scans_count) AS scans_count,
-            SUM(scanned_qty_total) AS scanned_qty_total,
-            SUM(unique_barcodes) AS unique_barcodes,
-            MIN(first_scan_at) AS first_scan_at,
-            MAX(last_scan_at) AS last_scan_at,
-            (julianday(MAX(last_scan_at)) - julianday(MIN(first_scan_at))) * 24.0 * 60.0 AS active_minutes
-        FROM history_sub_metrics
-        WHERE outlet = ?
-        GROUP BY sub_auditor_id, sub_name
-        ORDER BY scanned_qty_total DESC
-        """,
-        (outlet,),
-    ).fetchall()
-    max_scanned_qty = max([int(r["scanned_qty_total"] or 0) for r in sub_eff_rows], default=0)
-    max_assignments = max([int(r["assignments_total"] or 0) for r in sub_eff_rows], default=0)
-    sub_eff = []
-    for r in sub_eff_rows:
-        assignments_total = int(r["assignments_total"] or 0)
-        assignments_frozen = int(r["assignments_frozen"] or 0)
-        scans_count = int(r["scans_count"] or 0)
-        scanned_qty_total = int(r["scanned_qty_total"] or 0)
-        unique_barcodes = int(r["unique_barcodes"] or 0)
-        completion_rate = (assignments_frozen / assignments_total) if assignments_total else 0
-        throughput_norm = (scanned_qty_total / max_scanned_qty) if max_scanned_qty else 0
-        coverage_norm = (assignments_total / max_assignments) if max_assignments else 0
-        diversity = min(1.0, (unique_barcodes / scans_count)) if scans_count else 0
-        efficiency_score = round(
-            (throughput_norm * 35) + (coverage_norm * 20) + (completion_rate * 25) + (diversity * 20), 2
-        )
-        sub_eff.append(
-            {
-                "sub_name": r["sub_name"],
-                "assignments_total": assignments_total,
-                "assignments_frozen": assignments_frozen,
-                "completion_pct": round(completion_rate * 100, 2),
-                "scans_count": scans_count,
-                "scanned_qty_total": scanned_qty_total,
-                "unique_barcodes": unique_barcodes,
-                "active_minutes": round(float(r["active_minutes"] or 0), 2) if r["active_minutes"] else 0,
-                "efficiency_score": efficiency_score,
-            }
-        )
-    sub_eff.sort(key=lambda x: (x["efficiency_score"], x["scanned_qty_total"]), reverse=True)
+    window_start = efficiency_window_start(EFFICIENCY_WINDOW_DAYS)
+    sub_eff = build_sub_auditor_efficiency_rows(
+        db=db,
+        start_ts=window_start,
+        days=EFFICIENCY_WINDOW_DAYS,
+        outlet=outlet,
+    )
+    manager_rows = build_outlet_head_efficiency_rows(
+        db=db,
+        start_ts=window_start,
+        days=EFFICIENCY_WINDOW_DAYS,
+        user_id=user["id"],
+    )
+    manager_eff = manager_rows[0] if manager_rows else None
     hconn.close()
     return render_template(
         "outlet_analytics.html",
@@ -2055,6 +2147,8 @@ def outlet_analytics():
         totals=totals,
         rows=rows,
         sub_eff=sub_eff,
+        manager_eff=manager_eff,
+        efficiency_window_days=EFFICIENCY_WINDOW_DAYS,
     )
 
 
@@ -2260,12 +2354,7 @@ def sub_assignments():
             + (15 if row["is_frozen"] else 0),
             2,
         )
-        if efficiency_score >= 80:
-            efficiency_class = "success"
-        elif efficiency_score >= 50:
-            efficiency_class = "warning"
-        else:
-            efficiency_class = "danger"
+        efficiency_class = efficiency_band(efficiency_score)
         assignments.append(
             {
                 **dict(row),
@@ -2302,12 +2391,25 @@ def sub_assignments():
         + (freeze_completion_pct * 0.10),
         2,
     )
-    if efficiency_score >= 80:
-        efficiency_class = "success"
-    elif efficiency_score >= 50:
-        efficiency_class = "warning"
-    else:
-        efficiency_class = "danger"
+    efficiency_class = efficiency_band(efficiency_score)
+
+    window_start = efficiency_window_start(EFFICIENCY_WINDOW_DAYS)
+    sub_timebound = build_sub_auditor_efficiency_rows(
+        db=db,
+        start_ts=window_start,
+        days=EFFICIENCY_WINDOW_DAYS,
+        user_id=user["id"],
+    )
+    my_timebound = sub_timebound[0] if sub_timebound else {
+        "efficiency_score": 0,
+        "efficiency_class": "danger",
+        "qty_per_hour": 0,
+        "scan_days": 0,
+        "active_minutes": 0,
+        "scans_count": 0,
+        "scanned_qty_total": 0,
+        "unique_barcodes": 0,
+    }
 
     overview = {
         "departments_total": departments_total,
@@ -2324,6 +2426,15 @@ def sub_assignments():
         "scan_coverage_pct": scan_coverage_pct,
         "efficiency_score": efficiency_score,
         "efficiency_class": efficiency_class,
+        "tb_efficiency_score": my_timebound["efficiency_score"],
+        "tb_efficiency_class": my_timebound["efficiency_class"],
+        "tb_qty_per_hour": my_timebound["qty_per_hour"],
+        "tb_scan_days": my_timebound["scan_days"],
+        "tb_active_minutes": my_timebound["active_minutes"],
+        "tb_scans_count": my_timebound["scans_count"],
+        "tb_scanned_qty_total": my_timebound["scanned_qty_total"],
+        "tb_unique_barcodes": my_timebound["unique_barcodes"],
+        "efficiency_window_days": EFFICIENCY_WINDOW_DAYS,
     }
     return render_template("sub_assignments.html", assignments=assignments, overview=overview)
 

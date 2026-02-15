@@ -15,6 +15,14 @@
   <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Perfect Match %</div><div class="h4 mb-0">{{ totals['perfect_pct'] }}%</div></div></div>
   <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Absolute Variance</div><div class="h4 mb-0">{{ totals['variance_abs'] }}</div></div></div>
 </div>
+{% if manager_eff %}
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">My Efficiency ({{ efficiency_window_days }}d)</div><div class="h4 mb-0 text-{{ manager_eff['efficiency_class'] }}">{{ manager_eff['efficiency_score'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">My Qty / Hour ({{ efficiency_window_days }}d)</div><div class="h4 mb-0">{{ manager_eff['qty_per_hour'] }}</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">My Freeze % ({{ efficiency_window_days }}d)</div><div class="h4 mb-0">{{ manager_eff['freeze_rate_pct'] }}%</div></div></div>
+  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">My Active Days ({{ efficiency_window_days }}d)</div><div class="h4 mb-0">{{ manager_eff['scan_days'] }}</div></div></div>
+</div>
+{% endif %}
 
 <div class="card p-3 mb-3">
   <h5>Department Performance</h5>
@@ -36,18 +44,17 @@
 </div>
 
 <div class="card p-3">
-  <h5>Sub Auditor Efficiency ({{ outlet }})</h5>
+  <h5>Sub Auditor Efficiency ({{ outlet }}, Last {{ efficiency_window_days }} Days)</h5>
   <table class="table table-sm mb-0">
-    <thead><tr><th>Sub Auditor</th><th>Assignments</th><th>Frozen</th><th>Completion %</th><th>Scans</th><th>Qty</th><th>Unique Barcodes</th><th>Active Minutes</th><th>Efficiency Score</th></tr></thead>
+    <thead><tr><th>Sub Auditor</th><th>Scan Days</th><th>Scans</th><th>Qty</th><th>Qty / Hour</th><th>Unique Barcodes</th><th>Active Minutes</th><th>Efficiency Score</th></tr></thead>
     <tbody>
       {% for r in sub_eff %}
       <tr>
         <td>{{ r['sub_name'] }}</td>
-        <td>{{ r['assignments_total'] }}</td>
-        <td>{{ r['assignments_frozen'] }}</td>
-        <td>{{ r['completion_pct'] }}%</td>
+        <td>{{ r['scan_days'] }}</td>
         <td>{{ r['scans_count'] }}</td>
         <td>{{ r['scanned_qty_total'] }}</td>
+        <td>{{ r['qty_per_hour'] }}</td>
         <td>{{ r['unique_barcodes'] }}</td>
         <td>{{ r['active_minutes'] }}</td>
         <td><strong>{{ r['efficiency_score'] }}</strong></td>

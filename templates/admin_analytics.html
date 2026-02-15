@@ -77,22 +77,44 @@
 </div>
 
 <div class="card p-3">
-  <h5>Sub Auditor Efficiency</h5>
-  <div class="small text-muted mb-2">Score is based on throughput, assignment coverage, freeze completion and barcode diversity.</div>
+  <h5>Sub Auditor Efficiency (Last {{ efficiency_window_days }} Days)</h5>
+  <div class="small text-muted mb-2">Time-bound score uses scan throughput/hour, scan-day consistency, barcode diversity and quantity volume.</div>
   <table class="table table-sm mb-0">
-    <thead><tr><th>Sub Auditor</th><th>Outlet</th><th>Assignments</th><th>Frozen</th><th>Completion %</th><th>Scans</th><th>Qty</th><th>Unique Barcodes</th><th>Active Minutes</th><th>Efficiency Score</th></tr></thead>
+    <thead><tr><th>Sub Auditor</th><th>Outlet</th><th>Scan Days</th><th>Scans</th><th>Qty</th><th>Qty / Hour</th><th>Unique Barcodes</th><th>Active Minutes</th><th>Efficiency Score</th></tr></thead>
     <tbody>
       {% for r in sub_eff %}
       <tr>
         <td>{{ r['sub_name'] }}</td>
         <td>{{ r['outlet'] }}</td>
-        <td>{{ r['assignments_total'] }}</td>
-        <td>{{ r['assignments_frozen'] }}</td>
-        <td>{{ r['completion_pct'] }}%</td>
+        <td>{{ r['scan_days'] }}</td>
         <td>{{ r['scans_count'] }}</td>
         <td>{{ r['scanned_qty_total'] }}</td>
+        <td>{{ r['qty_per_hour'] }}</td>
         <td>{{ r['unique_barcodes'] }}</td>
         <td>{{ r['active_minutes'] }}</td>
+        <td><strong>{{ r['efficiency_score'] }}</strong></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card p-3 mt-3">
+  <h5>Outlet Manager Efficiency (Last {{ efficiency_window_days }} Days)</h5>
+  <div class="small text-muted mb-2">Time-bound score uses outlet throughput/hour, freeze completion, scan-day consistency and quantity volume.</div>
+  <table class="table table-sm mb-0">
+    <thead><tr><th>Manager</th><th>Outlet</th><th>Assigned Depts</th><th>Frozen ({{ efficiency_window_days }}d)</th><th>Freeze %</th><th>Scan Days</th><th>Qty</th><th>Qty / Hour</th><th>Efficiency Score</th></tr></thead>
+    <tbody>
+      {% for r in outlet_head_eff %}
+      <tr>
+        <td>{{ r['outlet_head_name'] }}</td>
+        <td>{{ r['outlet'] }}</td>
+        <td>{{ r['assignments_total'] }}</td>
+        <td>{{ r['frozen_recent'] }}</td>
+        <td>{{ r['freeze_rate_pct'] }}%</td>
+        <td>{{ r['scan_days'] }}</td>
+        <td>{{ r['scanned_qty_total'] }}</td>
+        <td>{{ r['qty_per_hour'] }}</td>
         <td><strong>{{ r['efficiency_score'] }}</strong></td>
       </tr>
       {% endfor %}
