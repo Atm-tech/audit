@@ -2415,6 +2415,7 @@ def sub_assignment_payload(user_id):
          AND ss.department = a.department
          AND ss.scanned_by = a.sub_auditor_id
         WHERE a.sub_auditor_id = ?
+          AND au.status = 'active'
         ORDER BY a.id DESC
         """,
         (user_id,),
@@ -2554,10 +2555,13 @@ def sub_scan(assignment_id):
     if not assignment:
         flash("Assignment not found.", "danger")
         return redirect(url_for("sub_assignments"))
+    if assignment["status"] == "ended":
+        flash("This audit has ended and is no longer available in your assignments.", "info")
+        return redirect(url_for("sub_assignments"))
 
     if request.method == "POST":
-        if assignment["is_frozen"] or assignment["status"] == "ended":
-            flash("This assignment is frozen or audit is ended.", "danger")
+        if assignment["is_frozen"]:
+            flash("This assignment is frozen.", "danger")
             return redirect(url_for("sub_scan", assignment_id=assignment_id))
 
         barcode = request.form.get("barcode", "").strip()
