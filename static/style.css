@@ -124,6 +124,16 @@ body {
   background: #e8f7f1;
 }
 
+.tray-power {
+  font-size: 1.2rem;
+  font-weight: 700;
+  padding-top: 8px;
+}
+
+.profile-power-btn {
+  font-weight: 700;
+}
+
 /* Mobile-only responsiveness; desktop layout remains unchanged. */
 @media (max-width: 768px) {
   body {

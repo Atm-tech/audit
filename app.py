@@ -591,6 +591,8 @@ def normalize_key(value):
 
 
 EFFICIENCY_WINDOW_DAYS = 7
+SCAN_PRESENCE_HEARTBEAT_SECONDS = 30
+SCAN_PRESENCE_MAX_GAP_SECONDS = 90
 
 
 def efficiency_window_start(days=EFFICIENCY_WINDOW_DAYS):
@@ -603,6 +605,72 @@ def efficiency_band(score):
     if score >= 50:
         return "warning"
     return "danger"
+
+
+def _parse_ts(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def build_scan_presence_minutes_map(db, start_ts, outlet=None, user_id=None):
+    filters = ["u.role = 'sub_auditor'", "sf.created_at >= ?"]
+    params = [start_ts]
+    if outlet:
+        filters.append("u.outlet = ?")
+        params.append(outlet)
+    if user_id:
+        filters.append("u.id = ?")
+        params.append(user_id)
+
+    rows = db.execute(
+        f"""
+        SELECT
+            sf.user_id,
+            sf.created_at
+        FROM scanner_feedback sf
+        JOIN users u ON u.id = sf.user_id
+        WHERE {" AND ".join(filters)}
+          AND sf.event_type IN (
+            'scan_page_open',
+            'scan_page_close',
+            'scan_page_heartbeat',
+            'scanner_started',
+            'scanner_stopped',
+            'detected_auto',
+            'detected_manual'
+          )
+        ORDER BY sf.user_id, sf.created_at
+        """,
+        tuple(params),
+    ).fetchall()
+
+    per_user = {}
+    for row in rows:
+        uid = int(row["user_id"])
+        dt = _parse_ts(row["created_at"])
+        if not dt:
+            continue
+        per_user.setdefault(uid, []).append(dt)
+
+    presence_minutes = {}
+    for uid, points in per_user.items():
+        if len(points) < 2:
+            presence_minutes[uid] = 0
+            continue
+        total_seconds = 0
+        prev = points[0]
+        for curr in points[1:]:
+            gap = (curr - prev).total_seconds()
+            if 0 < gap <= SCAN_PRESENCE_MAX_GAP_SECONDS:
+                total_seconds += gap
+            prev = curr
+        presence_minutes[uid] = round(total_seconds / 60.0, 2)
+
+    return presence_minutes
 
 
 def build_sub_auditor_efficiency_rows(db, start_ts, days=EFFICIENCY_WINDOW_DAYS, outlet=None, user_id=None):
@@ -624,10 +692,7 @@ def build_sub_auditor_efficiency_rows(db, start_ts, days=EFFICIENCY_WINDOW_DAYS,
             COALESCE(COUNT(s.id), 0) AS scans_count,
             COALESCE(SUM(s.scanned_qty), 0) AS scanned_qty_total,
             COALESCE(COUNT(DISTINCT s.barcode), 0) AS unique_barcodes,
-            COALESCE(COUNT(DISTINCT substr(s.scanned_at, 1, 10)), 0) AS scan_days,
-            MIN(s.scanned_at) AS first_scan_at,
-            MAX(s.scanned_at) AS last_scan_at,
-            (julianday(MAX(s.scanned_at)) - julianday(MIN(s.scanned_at))) * 24.0 * 60.0 AS active_minutes
+            COALESCE(COUNT(DISTINCT substr(s.scanned_at, 1, 10)), 0) AS scan_days
         FROM users u
         LEFT JOIN scans s
           ON s.scanned_by = u.id
@@ -638,6 +703,12 @@ def build_sub_auditor_efficiency_rows(db, start_ts, days=EFFICIENCY_WINDOW_DAYS,
         """,
         tuple(params),
     ).fetchall()
+    presence_minutes_map = build_scan_presence_minutes_map(
+        db=db,
+        start_ts=start_ts,
+        outlet=outlet,
+        user_id=user_id,
+    )
 
     result = []
     for row in rows:
@@ -645,7 +716,7 @@ def build_sub_auditor_efficiency_rows(db, start_ts, days=EFFICIENCY_WINDOW_DAYS,
         scanned_qty_total = int(row["scanned_qty_total"] or 0)
         unique_barcodes = int(row["unique_barcodes"] or 0)
         scan_days = int(row["scan_days"] or 0)
-        active_minutes = float(row["active_minutes"] or 0.0)
+        active_minutes = float(presence_minutes_map.get(int(row["sub_id"]), 0.0))
         active_hours = max(active_minutes / 60.0, 1 / 60) if scans_count else 0
         qty_per_hour = round(scanned_qty_total / active_hours, 2) if active_hours else 0
         diversity = min(1.0, (unique_barcodes / scans_count)) if scans_count else 0
@@ -1153,7 +1224,17 @@ def dashboard():
         return redirect(url_for("admin_audits"))
     if user["role"] == "outlet_head":
         return redirect(url_for("outlet_audits"))
-    return redirect(url_for("sub_assignments"))
+    return redirect(url_for("sub_home"))
+
+
+@app.route("/profile")
+@login_required
+def profile():
+    user = current_user()
+    if not user:
+        session.clear()
+        return redirect(url_for("login"))
+    return render_template("profile.html", user=user)
 
 
 # ---------------------------
@@ -2290,11 +2371,7 @@ def outlet_assign(audit_id):
 # ---------------------------
 # Sub-auditor routes
 # ---------------------------
-@app.route("/sub/assignments")
-@login_required
-@role_required("sub_auditor")
-def sub_assignments():
-    user = current_user()
+def sub_assignment_payload(user_id):
     db = get_db()
     assignment_rows = db.execute(
         """
@@ -2340,7 +2417,7 @@ def sub_assignments():
         WHERE a.sub_auditor_id = ?
         ORDER BY a.id DESC
         """,
-        (user["id"],),
+        (user_id,),
     ).fetchall()
 
     assignments = []
@@ -2398,7 +2475,7 @@ def sub_assignments():
         db=db,
         start_ts=window_start,
         days=EFFICIENCY_WINDOW_DAYS,
-        user_id=user["id"],
+        user_id=user_id,
     )
     my_timebound = sub_timebound[0] if sub_timebound else {
         "efficiency_score": 0,
@@ -2436,6 +2513,24 @@ def sub_assignments():
         "tb_unique_barcodes": my_timebound["unique_barcodes"],
         "efficiency_window_days": EFFICIENCY_WINDOW_DAYS,
     }
+    return assignments, overview
+
+
+@app.route("/sub/home")
+@login_required
+@role_required("sub_auditor")
+def sub_home():
+    user = current_user()
+    assignments, overview = sub_assignment_payload(user["id"])
+    return render_template("sub_home.html", assignments=assignments, overview=overview)
+
+
+@app.route("/sub/assignments")
+@login_required
+@role_required("sub_auditor")
+def sub_assignments():
+    user = current_user()
+    assignments, overview = sub_assignment_payload(user["id"])
     return render_template("sub_assignments.html", assignments=assignments, overview=overview)
 
 

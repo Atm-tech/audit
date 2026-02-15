@@ -2,43 +2,6 @@
 {% block content %}
 <h4 class="mb-3">My Department Assignments</h4>
 
-<div class="row g-3 mb-3">
-  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Departments Assigned</div><div class="h4 mb-0">{{ overview['departments_total'] }}</div></div></div>
-  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Departments Scanned</div><div class="h4 mb-0">{{ overview['departments_scanned'] }}</div></div></div>
-  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Departments Completed</div><div class="h4 mb-0">{{ overview['departments_completed'] }}</div></div></div>
-  <div class="col-md-3"><div class="card p-3"><div class="small text-muted">Efficiency ({{ overview['efficiency_window_days'] }}d)</div><div class="h4 mb-0 text-{{ overview['tb_efficiency_class'] }}">{{ overview['tb_efficiency_score'] }}</div></div></div>
-</div>
-
-<div class="card p-3 mb-3">
-  <div class="row g-3 align-items-center">
-    <div class="col-md-3">
-      <div class="small text-muted">Scanned Qty ({{ overview['efficiency_window_days'] }}d)</div>
-      <div class="h5 mb-0">{{ overview['tb_scanned_qty_total'] }}</div>
-    </div>
-    <div class="col-md-3">
-      <div class="small text-muted">Scan Entries ({{ overview['efficiency_window_days'] }}d)</div>
-      <div class="h5 mb-0">{{ overview['tb_scans_count'] }}</div>
-    </div>
-    <div class="col-md-3">
-      <div class="small text-muted">Active Minutes ({{ overview['efficiency_window_days'] }}d)</div>
-      <div class="h5 mb-0">{{ overview['tb_active_minutes'] }}</div>
-    </div>
-    <div class="col-md-3">
-      <div class="small text-muted">Qty / Hour ({{ overview['efficiency_window_days'] }}d)</div>
-      <div class="h5 mb-0">{{ overview['tb_qty_per_hour'] }}</div>
-    </div>
-  </div>
-  <hr>
-  <div class="small text-muted mb-1">Department Completion ({{ overview['dept_completion_pct'] }}%)</div>
-  <div class="progress mb-3" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ overview['dept_completion_pct'] }}">
-    <div class="progress-bar bg-info" style="width: {{ overview['dept_completion_pct'] }}%"></div>
-  </div>
-  <div class="small text-muted mb-1">Scan Coverage ({{ overview['scan_coverage_pct'] }}%)</div>
-  <div class="progress mb-0" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ overview['scan_coverage_pct'] }}">
-    <div class="progress-bar bg-warning" style="width: {{ overview['scan_coverage_pct'] }}%"></div>
-  </div>
-</div>
-
 <div class="card p-3">
   <table class="table mobile-stack-table sub-assignments-table">
     <thead><tr><th>Audit</th><th>Outlet</th><th>Department</th><th>Status</th><th>My Scan Progress</th><th>Efficiency</th><th></th></tr></thead>

@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">My Profile</h4>
+
+<div class="card p-3 mb-3">
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="small text-muted">Name</div>
+      <div class="h6 mb-0">{{ user['name'] }}</div>
+    </div>
+    <div class="col-md-6">
+      <div class="small text-muted">Role</div>
+      <div class="h6 mb-0">{{ user['role'] }}</div>
+    </div>
+    <div class="col-md-6">
+      <div class="small text-muted">Phone</div>
+      <div class="h6 mb-0">{{ user['phone'] }}</div>
+    </div>
+    <div class="col-md-6">
+      <div class="small text-muted">Outlet</div>
+      <div class="h6 mb-0">{{ user['outlet'] if user['outlet'] else '-' }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card p-3">
+  <a href="{{ url_for('logout') }}" class="btn btn-danger profile-power-btn" aria-label="Logout" title="Logout">&#x23FB; Logout</a>
+</div>
+{% endblock %}

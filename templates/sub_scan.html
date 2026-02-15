@@ -113,6 +113,7 @@
     let noDetectTimer = null;
     let activeTrack = null;
     let zoomSupported = false;
+    let pageHeartbeatTimer = null;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
@@ -172,6 +173,14 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
+      } catch (err) {}
+    }
+
+    function sendFeedbackBeacon(event, message = "", details = {}) {
+      const payload = { event, message, details };
+      try {
+        const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+        navigator.sendBeacon(feedbackUrl, blob);
       } catch (err) {}
     }
 
@@ -391,7 +400,21 @@
       sendFeedback("focus_tap", "user-tapped-focus", { x: Math.round(e.clientX - rect.left), y: Math.round(e.clientY - rect.top) });
     });
     window.addEventListener("beforeunload", () => {
+      sendFeedbackBeacon("scan_page_close", "scan-page-close", { scanner_running: isRunning });
       if (scanner && isRunning) scanner.stop().catch(() => {});
+    });
+
+    sendFeedback("scan_page_open", "scan-page-open", { manual_mode: manualMode.checked });
+    pageHeartbeatTimer = setInterval(() => {
+      sendFeedback("scan_page_heartbeat", "scan-page-heartbeat", { scanner_running: isRunning });
+    }, 30000);
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        sendFeedbackBeacon("scan_page_close", "scan-page-hidden", { scanner_running: isRunning });
+      } else if (document.visibilityState === "visible") {
+        sendFeedback("scan_page_open", "scan-page-visible", { scanner_running: isRunning });
+      }
     });
 
     applyModeState();

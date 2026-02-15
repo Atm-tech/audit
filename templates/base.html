@@ -12,7 +12,7 @@
 <nav class="navbar navbar-expand-lg app-header mb-4">
   <div class="container">
     <a class="navbar-brand" href="{{ url_for('dashboard') }}">Aapoorti Audit Manager</a>
-    <div class="d-flex gap-2 align-items-center">
+    <div class="d-flex gap-2 align-items-center header-actions">
       {% if session_user %}
         <span class="header-user">{{ session_user['name'] }} ({{ session_user['role'] }})</span>
         <a class="btn btn-sm btn-light header-logout" href="{{ url_for('logout') }}">Logout</a>
@@ -65,12 +65,11 @@
     <a class="tray-link {% if request.path.startswith('/outlet/analytics') %}active{% endif %}" href="{{ url_for('outlet_analytics') }}">Analytics</a>
     <a class="tray-link {% if request.path.startswith('/dashboard') %}active{% endif %}" href="{{ url_for('dashboard') }}">Home</a>
   {% elif session_user['role'] == 'sub_auditor' %}
-    <a class="tray-link {% if request.path.startswith('/sub/assignments') %}active{% endif %}" href="{{ url_for('sub_assignments') }}">Assignments</a>
-    <a class="tray-link {% if request.path.startswith('/dashboard') %}active{% endif %}" href="{{ url_for('dashboard') }}">Home</a>
-    {% set scan_target = request.path if request.path.startswith('/sub/assignments/') and request.path.endswith('/scan') else url_for('sub_assignments') %}
-    <a class="tray-link {% if request.path.endswith('/scan') %}active{% endif %}" href="{{ scan_target }}">Scan</a>
+    <a class="tray-link {% if request.path.startswith('/sub/home') %}active{% endif %}" href="{{ url_for('sub_home') }}">Home</a>
+    <a class="tray-link {% if request.path == '/sub/assignments' %}active{% endif %}" href="{{ url_for('sub_assignments') }}">Assignments</a>
+    <a class="tray-link {% if request.path == '/profile' %}active{% endif %}" href="{{ url_for('profile') }}">Profile</a>
   {% endif %}
-  <a class="tray-link" href="{{ url_for('logout') }}">Logout</a>
+  <a class="tray-link tray-power" href="{{ url_for('logout') }}" aria-label="Logout" title="Logout">&#x23FB;</a>
 </nav>
 {% endif %}
 </body>
