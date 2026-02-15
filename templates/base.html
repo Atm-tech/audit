@@ -19,15 +19,39 @@
     </div>
   </div>
 </nav>
+{% set is_admin_area = session_user and session_user['role'] == 'admin' and request.path.startswith('/admin') %}
+{% if is_admin_area %}
+<div class="container-fluid admin-shell pb-4">
+  <div class="row g-3">
+    <aside class="col-12 col-lg-3 col-xl-2">
+      <div class="card p-3 admin-sidebar">
+        <div class="small text-uppercase fw-semibold text-muted mb-2">Admin Menu</div>
+        <a class="admin-nav-link {% if request.path == '/admin/audits' %}active{% endif %}" href="{{ url_for('admin_audits') }}">Audits</a>
+        <a class="admin-nav-link {% if request.path == '/admin/audits/new' %}active{% endif %}" href="{{ url_for('admin_audit_new') }}">Create Audit</a>
+        <a class="admin-nav-link {% if request.path == '/admin/analytics' %}active{% endif %}" href="{{ url_for('admin_analytics') }}">Analytics</a>
+        <a class="admin-nav-link {% if request.path == '/admin/history' %}active{% endif %}" href="{{ url_for('admin_history') }}">History</a>
+        <a class="admin-nav-link {% if request.path == '/admin/scanner-feedback' %}active{% endif %}" href="{{ url_for('admin_scanner_feedback') }}">Scanner Feedback</a>
+        <a class="admin-nav-link {% if request.path == '/admin/users' %}active{% endif %}" href="{{ url_for('admin_users') }}">Manage Users</a>
+      </div>
+    </aside>
+    <main class="col-12 col-lg-9 col-xl-10">
+{% else %}
 <div class="container pb-4">
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      {% for category, message in messages %}
-        <div class="alert alert-{{ category }}">{{ message }}</div>
-      {% endfor %}
-    {% endif %}
-  {% endwith %}
-  {% block content %}{% endblock %}
+{% endif %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+{% block content %}{% endblock %}
+{% if is_admin_area %}
+    </main>
+  </div>
 </div>
+{% else %}
+</div>
+{% endif %}
 </body>
 </html>

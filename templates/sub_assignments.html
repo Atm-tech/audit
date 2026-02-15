@@ -44,15 +44,15 @@
 </div>
 
 <div class="card p-3">
-  <table class="table">
+  <table class="table mobile-stack-table sub-assignments-table">
     <thead><tr><th>Audit</th><th>Outlet</th><th>Department</th><th>Status</th><th>My Scan Progress</th><th>Efficiency</th><th></th></tr></thead>
     <tbody>
       {% for a in assignments %}
       <tr>
-        <td>{{ a['audit_name'] }}</td>
-        <td>{{ a['outlet'] if a['outlet'] else a['tag_outlet'] }}</td>
-        <td>{{ a['department'] }}</td>
-        <td>
+        <td data-label="Audit">{{ a['audit_name'] }}</td>
+        <td data-label="Outlet">{{ a['outlet'] if a['outlet'] else a['tag_outlet'] }}</td>
+        <td data-label="Department">{{ a['department'] }}</td>
+        <td data-label="Status">
           {% if a['status'] == 'ended' %}
             Audit Ended
           {% elif a['is_frozen'] %}
@@ -61,16 +61,16 @@
             Active
           {% endif %}
         </td>
-        <td style="min-width: 220px;">
+        <td data-label="My Scan Progress">
           <div class="small-muted mb-1">{{ a['scanned_total'] }} / {{ a['expected_total'] }} ({{ a['raw_progress_pct'] }}%)</div>
           <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ a['progress_pct'] }}">
             <div class="progress-bar {% if a['progress_pct'] >= 100 %}bg-success{% elif a['progress_pct'] > 0 %}bg-warning{% else %}bg-secondary{% endif %}" style="width: {{ a['progress_pct'] }}%"></div>
           </div>
         </td>
-        <td>
+        <td data-label="Efficiency">
           <span class="badge text-bg-{{ a['efficiency_class'] }}">{{ a['efficiency_score'] }}</span>
         </td>
-        <td>
+        <td data-label="Action">
           {% if a['is_frozen'] or a['status'] == 'ended' %}
           <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('sub_scan', assignment_id=a['id']) }}">View Analytics</a>
           {% else %}

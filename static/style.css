@@ -16,6 +16,38 @@
   font-size: 0.9rem;
 }
 
+.admin-shell {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.admin-sidebar {
+  position: sticky;
+  top: 14px;
+}
+
+.admin-nav-link {
+  display: block;
+  text-decoration: none;
+  color: #334155;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.5rem;
+  margin-bottom: 0.35rem;
+  border: 1px solid transparent;
+}
+
+.admin-nav-link:hover {
+  background: #eef2ff;
+  color: #1e293b;
+}
+
+.admin-nav-link.active {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #0f172a;
+  font-weight: 600;
+}
+
 /* Mobile-only responsiveness; desktop layout remains unchanged. */
 @media (max-width: 768px) {
   .container {
@@ -56,6 +88,15 @@
     font-size: 0.84rem;
   }
 
+  .admin-sidebar {
+    position: static;
+    top: auto;
+  }
+
+  .admin-nav-link {
+    margin-bottom: 0.45rem;
+  }
+
   .card > .table {
     display: block;
     width: 100%;
@@ -67,5 +108,50 @@
 
   .progress {
     height: 0.7rem;
+  }
+
+  .sub-assignments-table.mobile-stack-table {
+    display: block;
+  }
+
+  .card > .sub-assignments-table.mobile-stack-table {
+    overflow-x: visible;
+    white-space: normal;
+  }
+
+  .sub-assignments-table.mobile-stack-table thead {
+    display: none;
+  }
+
+  .sub-assignments-table.mobile-stack-table tbody,
+  .sub-assignments-table.mobile-stack-table tr,
+  .sub-assignments-table.mobile-stack-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .sub-assignments-table.mobile-stack-table tr {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 10px;
+    margin-bottom: 10px;
+    background: #ffffff;
+  }
+
+  .sub-assignments-table.mobile-stack-table td {
+    border: none;
+    padding: 0.3rem 0;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .sub-assignments-table.mobile-stack-table td::before {
+    content: attr(data-label) ": ";
+    font-weight: 600;
+    color: #334155;
+  }
+
+  .sub-assignments-table.mobile-stack-table td:last-child .btn {
+    width: 100%;
   }
 }
