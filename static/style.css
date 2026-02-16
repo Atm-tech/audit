@@ -5,6 +5,12 @@
   --tray-height: 62px;
 }
 
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
 body {
   background: #f7fafc;
   color: #1f2937;
@@ -685,5 +691,39 @@ body {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Header layout normalization */
+.app-header.navbar {
+  margin-top: 0;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+body > .app-header.navbar {
+  margin-top: 0 !important;
+}
+
+.app-header .container {
+  min-height: 48px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.app-header .navbar-brand {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  line-height: 1;
+}
+
+@media (max-width: 768px) {
+  .app-header .container {
+    min-height: 46px;
+  }
+
+  .app-header .navbar-brand {
+    min-height: 46px;
   }
 }
