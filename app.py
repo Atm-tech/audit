@@ -2,6 +2,7 @@
 import json
 import base64
 import difflib
+import hashlib
 import io
 import os
 import sqlite3
@@ -25,6 +26,11 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
+try:
+    import psycopg2
+except Exception:
+    psycopg2 = None
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 # Local-only SQLite storage.
 # If APP_DATA_DIR is set, it uses that directory.
@@ -42,6 +48,10 @@ DATA_DIR = resolve_data_dir()
 os.makedirs(DATA_DIR, exist_ok=True)
 DATABASE = os.path.join(DATA_DIR, "audit.db")
 HISTORY_DATABASE = os.path.join(DATA_DIR, "history.db")
+DATABASE_URL = (os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or "").strip()
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://") :]
+USE_POSTGRES_FILE_BACKUP = bool(DATABASE_URL)
 SEED_SQL_PATH = os.path.join(BASE_DIR, "seed_data.sql")
 DEFAULT_ADMIN_NAME = "admin"
 DEFAULT_ADMIN_PHONE = "9111080628"
@@ -52,6 +62,125 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = "change-this-secret-key"
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 app.config["DB_INITIALIZED"] = False
+app.config["PG_FILE_STORE_READY"] = False
+
+
+def _pg_connect():
+    if not USE_POSTGRES_FILE_BACKUP:
+        return None
+    if psycopg2 is None:
+        raise RuntimeError(
+            "DATABASE_URL is set but psycopg2 is not installed. Install requirements.txt."
+        )
+    return psycopg2.connect(DATABASE_URL)
+
+
+def _sqlite_file_paths():
+    return {
+        "audit.db": DATABASE,
+        "history.db": HISTORY_DATABASE,
+    }
+
+
+def _file_sha256(path):
+    if not os.path.exists(path):
+        return None
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _local_db_hashes():
+    return {name: _file_sha256(path) for name, path in _sqlite_file_paths().items()}
+
+
+def init_pg_file_store():
+    if not USE_POSTGRES_FILE_BACKUP or app.config.get("PG_FILE_STORE_READY"):
+        return
+    conn = _pg_connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_file_store (
+                file_key TEXT PRIMARY KEY,
+                content BYTEA NOT NULL,
+                sha256 TEXT NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        conn.commit()
+        app.config["PG_FILE_STORE_READY"] = True
+    finally:
+        conn.close()
+
+
+def sync_sqlite_from_postgres():
+    if not USE_POSTGRES_FILE_BACKUP:
+        return
+    init_pg_file_store()
+    conn = _pg_connect()
+    try:
+        cur = conn.cursor()
+        for file_key, path in _sqlite_file_paths().items():
+            cur.execute(
+                "SELECT content, sha256 FROM app_file_store WHERE file_key = %s",
+                (file_key,),
+            )
+            row = cur.fetchone()
+            if not row:
+                continue
+            content, remote_sha = row
+            local_sha = _file_sha256(path)
+            if local_sha and remote_sha and local_sha == remote_sha:
+                continue
+            with open(path, "wb") as f:
+                f.write(bytes(content))
+    finally:
+        conn.close()
+
+
+def sync_sqlite_to_postgres(force=False):
+    if not USE_POSTGRES_FILE_BACKUP:
+        return
+    init_pg_file_store()
+    conn = _pg_connect()
+    try:
+        cur = conn.cursor()
+        for file_key, path in _sqlite_file_paths().items():
+            if not os.path.exists(path):
+                continue
+            with open(path, "rb") as f:
+                content = f.read()
+            sha = hashlib.sha256(content).hexdigest()
+            if not force:
+                cur.execute(
+                    "SELECT sha256 FROM app_file_store WHERE file_key = %s",
+                    (file_key,),
+                )
+                row = cur.fetchone()
+                if row and row[0] == sha:
+                    continue
+            cur.execute(
+                """
+                INSERT INTO app_file_store (file_key, content, sha256, updated_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (file_key)
+                DO UPDATE SET
+                    content = EXCLUDED.content,
+                    sha256 = EXCLUDED.sha256,
+                    updated_at = NOW()
+                """,
+                (file_key, psycopg2.Binary(content), sha),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------------------------
@@ -522,10 +651,30 @@ def migrate_scans_table(db):
 
 @app.before_request
 def ensure_db_initialized():
+    if USE_POSTGRES_FILE_BACKUP:
+        try:
+            sync_sqlite_from_postgres()
+        except Exception:
+            app.logger.exception("Failed to restore SQLite files from Postgres")
+        g._db_hashes_before = _local_db_hashes()
     if not app.config["DB_INITIALIZED"]:
         init_db()
         init_history_db()
         app.config["DB_INITIALIZED"] = True
+
+
+@app.after_request
+def persist_sqlite_to_postgres(response):
+    if not USE_POSTGRES_FILE_BACKUP:
+        return response
+    try:
+        before_hashes = getattr(g, "_db_hashes_before", {}) or {}
+        after_hashes = _local_db_hashes()
+        if before_hashes != after_hashes:
+            sync_sqlite_to_postgres()
+    except Exception:
+        app.logger.exception("Failed to persist SQLite files to Postgres")
+    return response
 
 
 # ---------------------------
@@ -2723,7 +2872,12 @@ def inject_user():
 
 if __name__ == "__main__":
     with app.app_context():
+        if USE_POSTGRES_FILE_BACKUP:
+            sync_sqlite_from_postgres()
         init_db()
+        init_history_db()
+        if USE_POSTGRES_FILE_BACKUP:
+            sync_sqlite_to_postgres(force=True)
     app.run(
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 5000)),
